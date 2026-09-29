@@ -1,0 +1,126 @@
+# =====================================================================================
+#  PASSERELLE WHATSAPP — pile complète, publiée par Tailscale Funnel
+#
+#  Trois conteneurs :
+#    • evolution — la passerelle (moteur Baileys, session WhatsApp Web)
+#    • postgres  — la persistance des instances Evolution
+#    • tailscale — le sidecar qui publie la passerelle sur une adresse HTTPS
+#                  publique et stable, SANS nom de domaine et SANS VPS
+#
+#  Démarrage :   docker compose -f evolution/docker-compose.funnel.yml up -d
+#  Journal   :   docker compose -f evolution/docker-compose.funnel.yml logs -f tailscale
+#
+#  ⚠️  `name:` fixe le nom du projet Compose, donc LE NOM DES VOLUMES.
+#      Ne JAMAIS le modifier sur une installation en service : les volumes
+#      existants deviendraient orphelins, la session WhatsApp serait perdue, et
+#      il faudrait rescanner le QR code.
+# =====================================================================================
+name: rclmc-wa
+
+services:
+  evolution:
+    # Version ÉPINGLÉE. Ne jamais utiliser `latest` : une montée de version
+    # silencieuse casse la session et impose un nouveau scan du QR.
+    image: evoapicloud/evolution-api:v2.3.7
+    container_name: rclmc-wa-evolution
+    restart: unless-stopped
+    ports:
+      # Publié sur 127.0.0.1 UNIQUEMENT : le diagnostic local reste possible,
+      # rien n'est exposé au réseau de la station. Le trafic public passe
+      # exclusivement par le Funnel.
+      #
+      # 8082 et non 8081 : le montage de l'école (benzaoui) occupe déjà 8081.
+      # Sur DEUX machines séparées cela n'aurait aucune importance, mais si les
+      # deux piles se retrouvent un jour sur le même poste, le second conteneur
+      # refuserait de démarrer — avec une erreur de port qui ne dit rien de la
+      # vraie cause. Un numéro distinct coûte zéro et supprime le piège.
+      - "127.0.0.1:8082:8080"
+    environment:
+      # Doit valoir EXACTEMENT `EVOLUTION_BASE_URL` côté application : c'est la
+      # valeur inscrite dans le champ `server_url` de chaque webhook, et
+      # l'application la compare au caractère près. Un slash final en trop et
+      # TOUS les accusés de remise partent en 403.
+      SERVER_URL: ${TUNNEL_PUBLIC_URL}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
+
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: rclmc
+      # Le journal applicatif vit dans la base du projet (whatsapp_messages) :
+      # inutile de dupliquer chaque message sur le disque du poste.
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+
+      # ESSENTIEL : une instance déconnectée ne doit PAS être supprimée. Sinon
+      # une simple coupure imposerait de tout reconfigurer au lieu d'un rescan.
+      DEL_INSTANCE: "false"
+
+      # Les webhooks sont déclarés PAR INSTANCE, depuis l'application, avec un
+      # jeton d'authentification — jamais globalement.
+      WEBHOOK_GLOBAL_ENABLED: "false"
+
+      QRCODE_LIMIT: "30"
+      LOG_LEVEL: ERROR
+      CACHE_LOCAL_ENABLED: "true"
+      CACHE_REDIS_ENABLED: "false"
+    volumes:
+      # C'EST LA SESSION WHATSAPP. La perdre impose un nouveau scan du QR code.
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rclmc-wa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      # Ce mot de passe n'est appliqué qu'à l'INITIALISATION du volume. Le
+      # modifier ensuite fait rejeter la connexion par la base, et la passerelle
+      # ne démarre plus. Le conserver tel quel lors de toute bascule.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Sans ce contrôle, Evolution démarre en erreur avant que la base accepte
+      # les connexions.
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: rclmc-wa-tailscale
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TAILSCALE_AUTHKEY}
+      # Détermine la PREMIÈRE MOITIÉ de l'adresse publique. Ce nom ne se
+      # récupère nulle part : c'est un nom que l'on choisit.
+      TS_HOSTNAME: ${TAILSCALE_HOSTNAME}
+      TS_SERVE_CONFIG: /config/funnel.json
+      TS_STATE_DIR: /var/lib/tailscale
+      # Évite /dev/net/tun et les privilèges réseau — indispensable sous Docker
+      # Desktop / Windows.
+      TS_USERSPACE: "true"
+      TS_EXTRA_ARGS: --accept-dns=false
+    volumes:
+      # Sans ce volume, le nœud se réenregistre à chaque démarrage et reçoit un
+      # nom suffixé (-1, -2…) : L'ADRESSE PUBLIQUE CHANGE et l'application
+      # n'atteint plus rien. Aussi important que le volume de la session.
+      - tailscale_state:/var/lib/tailscale
+      # On monte le DOSSIER, pas le fichier : un bind-mount de fichier unique
+      # empêche le conteneur de voir les modifications ultérieures.
+      - ./tailscale:/config:ro
+
+volumes:
+  evolution_instances:
+  postgres_data:
+  tailscale_state:
