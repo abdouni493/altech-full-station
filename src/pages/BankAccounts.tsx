@@ -479,7 +479,7 @@ function AccountHistory({
   const [from, setFrom] = useState(''); const [to, setTo] = useState('');
 
   // A movement can come from / go to a bank account, any caisse of the station
-  // (générale, Carburant, Cafétéria, Lavage) or the outside world.
+  // (générale, Carburant, Cafétéria, Magasin) or the outside world.
   const label = (id?: string) => accountLabelOf(id, accounts, id ? '—' : 'Externe');
 
   const rows = useMemo(() => txs

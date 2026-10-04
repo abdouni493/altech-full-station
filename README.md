@@ -1,56 +1,51 @@
-# Altech Full Station — version démo
+# Station — gestion de station-service
 
-Application de gestion de station-service (carburant, restaurant, cafétéria,
-lavage & vidange, finance) en **version de démonstration** : elle ne se connecte
-à **aucune base de données**. Tous les écrans tournent sur un jeu de données
-constant, généré en mémoire au chargement de la page.
+Application de gestion de station-service : **Carburant** (brigades, cuves,
+pompes, achats carburant), **Restaurant**, **Cafétéria**, **Magasin** et
+**Finance** (caisse générale, comptes bancaires, rapports généraux).
 
-## 🚀 Lancer
+Back-end : **Supabase** (Auth, Postgres + RLS, Storage, Realtime).
+
+## 1. Base de données (une seule fois)
+
+1. Supabase → **SQL Editor** → New query.
+2. Collez tout le fichier [`supabase/full_schema.sql`](supabase/full_schema.sql) → **Run**.
+3. Supabase → **Authentication → Sign In / Providers → Email** :
+   - désactivez **Confirm email** ;
+   - désactivez **Allow new users to sign up** (tous les comptes sont créés par
+     l'application).
+
+Le script crée toutes les tables et relations, les fonctions (RPC) appelées par
+l'application, les règles RLS par permission, les 9 buckets d'images et la
+publication temps réel. Il peut être relancé sans risque.
+
+## 2. Configuration
+
+`.env` (voir `.env.example`) :
+
+```
+VITE_SUPABASE_URL=https://<projet>.supabase.co
+VITE_SUPABASE_ANON_KEY=<clé anon>
+```
+
+## 3. Lancer
 
 ```bash
 npm install
 npm run dev        # → http://localhost:3000
-# ou, sans serveur :
-npx vite build && npx vite preview
+npm run build && npm start
 ```
 
-## 🔑 Accès rapide
+## 4. Comptes
 
-La page de connexion propose un bouton par profil — un clic suffit :
-
-| Profil | Email | Mot de passe |
-|---|---|---|
-| Administrateur | `admin@demo.dz` | `demo123` |
-| Gérant | `gerant@demo.dz` | `demo123` |
-| Chef de brigade | `chef@demo.dz` | `demo123` |
-| Pompiste | `pompiste@demo.dz` | `demo123` |
-| Employé magasin | `magasin@demo.dz` | `demo123` |
-| Restaurant | `restaurant@demo.dz` | `demo123` |
-| Cafétéria | `cafeteria@demo.dz` | `demo123` |
-| Lavage & Vidange | `lavage@demo.dz` | `demo123` |
-
-## 🧪 Données de démonstration
-
-- `src/lib/demo/seed.ts` — le jeu de données : ~45 jours de brigades (index des
-  pistolets, bons clients, TPE/TAG, décalages), achats carburant et
-  réapprovisionnement des cuves, clients, fournisseurs, dépenses, trésorerie,
-  paie, et l'activité complète des parties **Restaurant**, **Cafétéria** et
-  **Lavage & Vidange** (produits, fiches techniques, productions, comptoir,
-  ventes, sessions de caisse, interventions, inventaires…). Les dates suivent le
-  jour courant : le mois en cours est toujours rempli.
-- `src/lib/demo/mockBackend.ts` — remplace le client Supabase : requêtes,
-  authentification, fonctions RPC, stockage de fichiers et temps réel sont
-  servis en mémoire.
-
-Chaque bouton fonctionne (créer, modifier, supprimer, encaisser…). Les
-modifications vivent en mémoire et les données constantes reviennent au
-rechargement de la page.
-
-## 🍽️ Partie Restaurant
-
-Le Restaurant dispose des mêmes interfaces que la Cafétéria (stock, inventaire,
-achats, production, comptoir, point de vente, ventes, clients, fournisseurs,
-employés, dépenses, caisse, rapports, retours clients), et il est intégré à la
-**Caisse Générale** (caisse dédiée, virements, créances), aux **Rapports
-Généraux** (rapport détaillé, vue globale, analyses, stock, inventaires, zakât,
-personnel) et à tous les calculs consolidés.
+- **Premier lancement** : la page de connexion affiche
+  « Créer un compte administrateur ». Le bouton disparaît dès que
+  l'administrateur est créé.
+- **Employés** : l'administrateur leur crée un accès (nom d'utilisateur + mot de
+  passe) depuis Pompistes / Gérants / Employés Magasin, ou depuis
+  « Employés » d'une partie (Restaurant / Cafétéria / Magasin). Le compte est
+  créé directement dans Supabase Auth et peut se connecter tout de suite avec
+  son nom d'utilisateur ou son email.
+- **Permissions** : chaque employé ne voit que les interfaces et boutons cochés
+  par l'administrateur ; la base refuse en plus les suppressions et la gestion
+  des comptes sans la permission correspondante.

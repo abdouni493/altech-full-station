@@ -60,7 +60,7 @@ const roleBadge: Record<string, { label: string; bg: string; text: string }> = {
 //
 // The sidebar is organised by "part" (activity): a reorganised Carburant part
 // (the original fuel-station app), then four new commerce/production parts
-// (Restaurant, Cafétéria, Lavage & Vidange, Magasin) whose pages live on the
+// (Restaurant, Cafétéria, Magasin, Magasin) whose pages live on the
 // BizContext store — itself fed by the `biz_store` row in Supabase.
 
 // Builds a nav group for one business module from its capabilities (config).
@@ -69,15 +69,12 @@ function buildModuleNavGroup(key: ModuleKey): NavGroup {
   const b = cfg.base;
   const items: NavItem[] = [];
   if (cfg.isService) {
-    items.push({ label: "Vidanges & Lavage", icon: Car,         path: `${b}/reparations` });
-    items.push({ label: "Demandes d'encaissement", icon: BellRing, path: `${b}/encaissements` });
     items.push({ label: "Point de vente",       icon: ShoppingBag, path: `${b}/pos` });
     items.push({ label: "Ventes",               icon: Receipt,     path: `${b}/sales` });
     items.push({ label: "Gestion de stock",     icon: Package,     path: `${b}/stock` });
     items.push({ label: "Inventaire",           icon: ClipboardList, path: `${b}/inventaire` });
     items.push({ label: "Achats",               icon: ShoppingCart,path: `${b}/purchases` });
     items.push({ label: "Clients",              icon: Users,       path: `${b}/clients` });
-    items.push({ label: "Messages clients",     icon: MessageCircle, path: `${b}/messages` });
     items.push({ label: "Fournisseurs",         icon: Truck,       path: `${b}/suppliers` });
     items.push({ label: "Employés",             icon: UsersRound,  path: `${b}/workers` });
     items.push({ label: "Dépenses",             icon: CreditCard,  path: `${b}/expenses` });
@@ -296,7 +293,7 @@ function buildWorkerNav(role: string, permissions?: UserPermissions): NavGroup[]
   return groups;
 }
 
-// --- Business-part employee nav (Restaurant / Cafétéria / Lavage / Magasin) ---
+// --- Business-part employee nav (Restaurant / Cafétéria / Magasin) ---
 //
 // A part employee only ever sees interfaces of THEIR part, and only those the
 // admin ticked "voir" on in the employee's Permissions modal. The item list is
@@ -304,8 +301,6 @@ function buildWorkerNav(role: string, permissions?: UserPermissions): NavGroup[]
 
 /** Sidebar entry for one interface id of a part (same ids as MODULE_INTERFACES). */
 const PART_IFACE_NAV: Record<string, { label: string; icon: React.ElementType }> = {
-  reparations:   { label: "Vidanges & Lavage",    icon: Car },
-  encaissements: { label: "Demandes d'encaissement", icon: BellRing },
   stock:       { label: "Gestion de stock",     icon: Package },
   purchases:   { label: "Achats",               icon: ShoppingCart },
   production:  { label: "Production",           icon: FlaskConical },
@@ -313,7 +308,6 @@ const PART_IFACE_NAV: Record<string, { label: string; icon: React.ElementType }>
   pos:         { label: "Point de vente",       icon: ShoppingBag },
   sales:       { label: "Ventes",               icon: Receipt },
   clients:     { label: "Clients",              icon: Users },
-  messages:    { label: "Messages clients",     icon: MessageCircle },
   suppliers:   { label: "Fournisseurs",         icon: Truck },
   workers:     { label: "Employés",             icon: UsersRound },
   expenses:    { label: "Dépenses",             icon: CreditCard },

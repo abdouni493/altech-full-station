@@ -12,7 +12,7 @@
  *      5. Récapitulation           (par nature, par mode de paiement)
  *
  * Il sert les trois activités sans être écrit trois fois : Carburant, Cafétéria
- * et Lavage & Vidange lui passent le même `ClientStatement`.
+ * et Magasin lui passent le même `ClientStatement`.
  * ──────────────────────────────────────────────────────────────────────────────
  */
 import React from 'react';

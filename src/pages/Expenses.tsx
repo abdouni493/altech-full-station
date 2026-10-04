@@ -71,7 +71,7 @@ const PARTS: { key: TreasuryPart; label: string; short: string; tone: string }[]
   { key: 'carburant', label: 'Carburant', short: '⛽ Carburant', tone: '#003087' },
   { key: 'restaurant', label: 'Restaurant', short: '🍽️ Restaurant', tone: '#be123c' },
   { key: 'cafeteria', label: 'Cafétéria', short: '☕ Cafétéria', tone: '#b45309' },
-  { key: 'lavage', label: 'Lavage & Vidange', short: '💧 Lavage', tone: '#0e7490' },
+  { key: 'lavage', label: 'Magasin', short: '🛒 Magasin', tone: '#0e7490' },
   { key: 'systeme', label: 'Finance (caisse générale)', short: '🏛️ Finance', tone: '#4c1d95' },
 ];
 const PART_LABEL: Record<string, string> = Object.fromEntries(PARTS.map(p => [p.key, p.label]));

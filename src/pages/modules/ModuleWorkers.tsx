@@ -50,7 +50,7 @@ export default function ModuleWorkers({ moduleKey }: { moduleKey: ModuleKey }) {
 
   const currentMonth = new Date().toISOString().slice(0, 7);
 
-  // The speciality only exists on the Lavage & Vidange part.
+  // The speciality only exists on the Magasin part.
   const hasKinds = cfg.isService;
   const filtered = workers.filter(w => {
     const matchQ = matchesSearch(search, w.name, w.roleName, w.phone, w.cin);
@@ -383,7 +383,7 @@ function WorkerForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; ini
   const biz = useBiz(moduleKey);
   const { roles } = biz.state;
   const isEdit = !!initial;
-  // Only the Lavage & Vidange part splits its staff by speciality.
+  // Only the Magasin part splits its staff by speciality.
   const hasKinds = MODULES[moduleKey].isService;
   const [f, setF] = useState<Partial<BizWorker>>(initial || {
     name: '', birthday: '', cin: '', phone: '', roleName: '', paid: true, salaryType: 'mois', salaryAmount: 0, percentage: 0,

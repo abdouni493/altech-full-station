@@ -43,7 +43,7 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   [CAISSE_PART_ID.carburant]: 'Caisse Carburant',
   [CAISSE_PART_ID.restaurant]: 'Caisse Restaurant',
   [CAISSE_PART_ID.cafeteria]: 'Caisse Cafétéria',
-  [CAISSE_PART_ID.lavage]: 'Caisse Lavage & Vidange',
+  [CAISSE_PART_ID.lavage]: 'Caisse Magasin',
 };
 
 const isCashAccount = (id?: string): boolean => !!id && CASH_ACCOUNT_IDS.includes(id);
@@ -81,7 +81,7 @@ export const ORIGIN_LABEL: Record<string, string> = {
 };
 
 export const TREASURY_PART_LABEL: Record<TreasuryPartKey, string> = {
-  carburant: 'Carburant', restaurant: 'Restaurant', cafeteria: 'Cafétéria', lavage: 'Lavage & Vidange', systeme: 'Finance',
+  carburant: 'Carburant', restaurant: 'Restaurant', cafeteria: 'Cafétéria', lavage: 'Magasin', systeme: 'Finance',
 };
 
 // ─── Rows ────────────────────────────────────────────────────────────────────
@@ -555,7 +555,7 @@ export function computeTreasuryReport(app: any, biz: BizState, from: string, to:
     })));
     (m.reparations || []).forEach(r => docPaymentSlices(r, num(r.paid)).forEach(l => push({
       id: `${key}-rep-${l.id}`, date: l.date, nature: 'Vente', part, isLedger: false,
-      label: `${r.kind === 'lavage' ? 'Lavage' : r.kind === 'reparation' ? 'Vidange' : 'Lavage + Vidange'} ${r.ref} — ${r.clientName}`,
+      label: `Prestation ${r.ref} — ${r.clientName}`,
       amount: l.amount,
     })));
     (m.purchases || []).forEach(p => push({

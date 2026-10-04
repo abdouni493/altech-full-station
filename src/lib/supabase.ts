@@ -1,22 +1,21 @@
 /**
- * ─── DATA CLIENT (DEMO VERSION — no database) ──────────────────────────────────
- * This build is a demonstration: it has NO connection to any database. The
- * `supabase` object below is an in-memory stand-in (`./demo/mockBackend`) seeded
- * with constant demo data (`./demo/seed`). It keeps the exact public surface the
- * app has always used (`supabase`, `db`, `signIn`, `dbInsert`, `subscribeTable`,
- * storage helpers, …), so every page, interface and button keeps working —
- * changes simply live in memory until the page is reloaded.
+ * ─── DATA CLIENT ───────────────────────────────────────────────────────────────
+ * Single Supabase client for the whole app (auth, tables, RPCs, storage,
+ * realtime). The schema it expects is `supabase/full_schema.sql`.
  * ──────────────────────────────────────────────────────────────────────────────
  */
-import { createDemoClient, DEMO_AUTH_STORAGE_KEY } from './demo/mockBackend';
+import { createClient } from '@supabase/supabase-js';
 
-export { DEMO_ACCOUNTS, DEMO_PASSWORD } from './demo/seed';
-export type { DemoAccount } from './demo/seed';
+export const SUPABASE_URL: string =
+  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://hrzpqnlqtwifaafanzyj.supabase.co';
+export const SUPABASE_ANON_KEY: string =
+  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhyenBxbmxxdHdpZmFhZmFuenlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExMDAyMTksImV4cCI6MjEwNjY3NjIxOX0.fUGUHwP5eQVPPNf23xmMJ8jIzfBYJqwOFdhcOvyyLpA';
 
-/** Always true in this build — screens can use it to show a « démo » badge. */
-export const IS_DEMO = true;
+export const IS_DEMO = false;
 
-export const AUTH_STORAGE_KEY = DEMO_AUTH_STORAGE_KEY;
+/** localStorage key holding the Supabase session (read synchronously at boot). */
+export const AUTH_STORAGE_KEY = 'station-auth-token';
 
 /** Minimal shape the app reads off a session. */
 export interface PersistedSession {
@@ -25,7 +24,7 @@ export interface PersistedSession {
   user: { id: string; email?: string; user_metadata?: Record<string, any> };
 }
 
-/** The signed-in demo session, read synchronously from localStorage. */
+/** The signed-in session, read synchronously from localStorage. */
 export function readPersistedSession(): PersistedSession | null {
   try {
     const raw = globalThis.localStorage?.getItem(AUTH_STORAGE_KEY);
@@ -44,18 +43,33 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // ─── Diagnostic ─────────────────────────────────────────────────────────────────
 export type BackendStatus = 'ok' | 'database' | 'offline';
 
-/** The demo data lives in the browser: it is always reachable. */
+/** Tells apart « no Internet » from « Supabase does not answer ». */
 export async function probeBackend(): Promise<BackendStatus> {
-  return 'ok';
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/health`, {
+      headers: { apikey: SUPABASE_ANON_KEY },
+      cache: 'no-store',
+    });
+    return res.ok ? 'ok' : 'database';
+  } catch {
+    return 'offline';
+  }
 }
 
 /** Message prêt à afficher pour chaque état — même vocabulaire partout. */
 export const BACKEND_STATUS_MESSAGE: Record<Exclude<BackendStatus, 'ok'>, string> = {
-  database: "Les données de démonstration ne répondent pas. Rechargez la page.",
-  offline: "Les données de démonstration ne répondent pas. Rechargez la page.",
+  database: "Le serveur Supabase ne répond pas pour le moment. Réessayez dans un instant.",
+  offline: "Impossible de joindre le serveur. Vérifiez votre connexion Internet.",
 };
 
-export const supabase: any = createDemoClient();
+export const supabase: any = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    storageKey: AUTH_STORAGE_KEY,
+  },
+});
 
 // ─── Realtime health ────────────────────────────────────────────────────────────
 /**
@@ -184,8 +198,6 @@ export async function uploadBase64(
 
 // ─── Auth helpers (public API) ──────────────────────────────────────────────────
 
-const DEMO_ADMIN_EMAIL = 'admin@demo.dz';
-const DEMO_ADMIN_PASSWORD = 'demo123';
 
 /**
  * Rôle du compte qui vient de se connecter. La page de connexion REFUSE l'accès
@@ -237,17 +249,6 @@ export async function signIn(identifier: string, password: string) {
 
   const role = await resolveRole();
   return { user: data.user, session: data.session, role, profile: null };
-}
-
-/** One-click demo administrator login (only works if that account exists). */
-export async function signInDemoAdmin() {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: DEMO_ADMIN_EMAIL,
-    password: DEMO_ADMIN_PASSWORD,
-  });
-  if (error) throw new Error(error.message);
-  const role = (await resolveRole()) ?? 'admin';
-  return { user: data.user, session: data.session, role: role as 'admin' };
 }
 
 /**
@@ -321,7 +322,7 @@ export async function provisionWorkerAccount(input: {
   }
 }
 
-// ─── Business-part worker accounts (Restaurant / Cafétéria / Lavage / Magasin) ──
+// ─── Business-part worker accounts (Restaurant / Cafétéria / Magasin) ──
 // These employees live in the BizContext store, so they need their own auth
 // provisioning path (see supabase/migrations/module_workers_auth.sql).
 
@@ -409,7 +410,7 @@ export async function getMyModuleWorker(): Promise<ModuleWorkerRow | null> {
 }
 
 // ─── Shared business-parts state (single JSON row) ──────────────────────────────
-// Keeps Restaurant / Cafétéria / Lavage / Magasin data identical for the admin
+// Keeps Restaurant / Cafétéria / Magasin data identical for the admin
 // and for every part-employee who logs in, instead of being browser-local only.
 const BIZ_STORE_ID = 'biz-v1';
 

@@ -58,7 +58,7 @@ const SECTIONS: { id: ActiveKey; label: string; icon: React.ElementType; hint: s
   { id: 'carburant', label: 'Carburant', icon: Fuel, hint: 'Rapport détaillé' },
   { id: 'restaurant', label: 'Restaurant', icon: UtensilsCrossed, hint: 'Rapport détaillé' },
   { id: 'cafeteria', label: 'Cafétéria', icon: Coffee, hint: 'Rapport détaillé' },
-  { id: 'lavage', label: 'Lavage & Vidange', icon: Wrench, hint: 'Rapport détaillé' },
+  { id: 'lavage', label: 'Magasin', icon: Store, hint: 'Rapport détaillé' },
 ];
 
 /** Sections that are a per-activity `PartReport` (the others have their own view). */
@@ -695,7 +695,7 @@ export default function GeneralReports() {
       workers:      { title: 'Employés de la station', icon: UsersRound, subtitle: 'Tous les employés, toutes activités confondues', rows: workerRows, total: workforce.totals.dueNow, totalLabel: 'Reste à régler', note: `${workforce.totals.workers} employé(s), dont ${workforce.totals.withAccount} avec un compte actif. Le montant de chaque ligne est ce qu'il reste à lui verser aujourd'hui. Ouvrez « Employés & Personnel » pour le dossier complet de chacun.` },
       salaries:     { title: 'Salaires versés', icon: Banknote, subtitle: 'Chaque paiement de la période', rows: salaryRows, total: workforce.totals.salariesPaid, totalLabel: 'Total versé', note: `${money(workforce.totals.acomptes)} d'acomptes ont par ailleurs été avancés sur la période. Les salaires se corrigent depuis la fiche de l'employé concerné.` },
       brigades:     { title: 'Brigades — les ventes de carburant', icon: Fuel, subtitle: 'Chaque brigade, ses litres et ce qui est rentré', rows: brigadeRows, total: reports.carburant.fuelBrigades.reduce((s, b) => s + b.revenue, 0), totalLabel: "Chiffre d'affaires", note: `${reports.carburant.fuelLiters.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} L vendus. Le chiffre d'affaires du carburant vient des BRIGADES : les pistolets donnent les litres, la comptabilité de clôture dit ce qui est rentré en espèces, par TPE, en bons clients, et ce qui manque. Corrigez une brigade depuis l'écran Brigades.` },
-      works:        { title: 'Travaux & prestations', icon: Car, subtitle: 'Lavages, vidanges et ventes restaurant / cafétéria de la période', rows: workRows, total: workRows.reduce((s, r) => s + r.amount, 0), totalLabel: 'Total facturé' },
+      works:        { title: 'Travaux & prestations', icon: Car, subtitle: 'Ventes magasin, restaurant et cafétéria de la période', rows: workRows, total: workRows.reduce((s, r) => s + r.amount, 0), totalLabel: 'Total facturé' },
       workingCapital: { title: 'Fonds de roulement', icon: Scale, subtitle: 'Chaque terme du calcul, ligne par ligne', rows: wcRows, total: workingCapital.workingCapital, totalLabel: 'Fonds de roulement', note: `Trésorerie ${money(workingCapital.treasuryTotal)} + créances ${money(workingCapital.receivablesTotal)} + stock ${money(workingCapital.stockValue)} − dettes ${money(workingCapital.payablesTotal)}. La trésorerie, ce sont les caisses (${money(workingCapital.cashTotal)}) et les comptes bancaires (${money(workingCapital.bankTotal)}). Les caisses sont les cinq tiroirs de l'écran Caisse Générale : ${money(workingCapital.activitiesCash)} dans les activités et ${money(workingCapital.financeCash)} en Finance. Le tiroir commun du grand livre en contient ${money(workingCapital.drawerCash)} — l'argent que les activités y ont déposé y dort aussi, et leurs caisses le portent déjà.` },
       stockSell:    { title: 'Stock au prix de vente', icon: TrendingUp, subtitle: "Ce que la réserve rapportera si tout part au prix affiché", rows: stockSellRows, total: stockValuation.sellValue, totalLabel: 'Valeur de vente', note: `Au prix d'achat la même réserve vaut ${money(stockValuation.buyValue)} : l'écart, ${money(stockValuation.margin)}, est une marge LATENTE — elle n'existe que si la marchandise se vend.` },
       cogs:         { title: 'Coût des marchandises vendues', icon: Layers, subtitle: 'Ce que les ventes de la période ont réellement coûté', rows: cogsRows, total: global.cogs, totalLabel: 'Coût total', note: `Ventes ${money(global.salesTotal)} − coût des marchandises ${money(global.cogs)} = marge brute ${money(global.grossMargin)}. C'est la part du prix de vente qui n'est PAS un gain : les litres achetés, les ingrédients, le prix d'achat des articles.` },
@@ -709,7 +709,7 @@ export default function GeneralReports() {
 
   /**
    * Les employés de l'activité affichée, mais SEULEMENT quand c'est une activité
-   * de service (Lavage & Vidange) : son rapport déplie alors, employé par
+   * de service (Magasin) : son rapport déplie alors, employé par
    * employé, les travaux de la période. Les pompistes et la cafétéria n'ont pas
    * de travaux nominatifs — leur activité se lit dans « Employés & Personnel ».
    */
@@ -756,7 +756,7 @@ export default function GeneralReports() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-4xl font-black text-blue-900 uppercase italic tracking-tighter leading-none">Rapports Généraux</h1>
-          <p className="text-slate-500 font-medium mt-2 italic leading-relaxed">Bilan consolidé et détaillé de toutes les activités : carburant, restaurant, cafétéria et lavage & vidange.</p>
+          <p className="text-slate-500 font-medium mt-2 italic leading-relaxed">Bilan consolidé et détaillé de toutes les activités : carburant, restaurant, cafétéria et magasin.</p>
         </div>
         <button onClick={handlePrint} className="btn-primary h-14 px-10 text-[11px] uppercase tracking-[0.25em] italic font-black flex items-center gap-3 shrink-0">
           <Printer className="w-4 h-4" /> Imprimer {activeReport ? 'la fiche' : 'la fiche globale'}
@@ -1256,7 +1256,7 @@ function GlobalOverview({ global: g, workforce: wf, treasury: tr, workingCapital
           <OverviewCard icon={UsersRound} tone="blue" label="Employés" value={String(wf.totals.workers)} sub={`${wf.totals.withAccount} compte(s) actif(s)`} onClick={() => onOpenCard('workers')} cta="Voir le détail" />
           <OverviewCard icon={Banknote} tone="green" label="Salaires versés" value={money(wf.totals.salariesPaid)} sub={`${money(wf.totals.acomptes)} d'acomptes`} onClick={() => onOpenCard('salaries')} cta="Chaque paiement" />
           <OverviewCard icon={Target} tone="purple" label="Brigades couvertes" value={String(wf.totals.brigades)} sub={`${wf.totals.liters.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} L vendus`} onClick={() => onOpenCard('brigades')} cta="Voir les brigades" />
-          <OverviewCard icon={Car} tone="cyan" label="Travaux lavage / vidange" value={String(wf.totals.works)} sub={`${wf.totals.sessions} sessions cafétéria`} onClick={() => onOpenCard('works')} cta="Voir le détail" />
+          <OverviewCard icon={Car} tone="cyan" label="Travaux & prestations" value={String(wf.totals.works)} sub={`${wf.totals.sessions} sessions cafétéria`} onClick={() => onOpenCard('works')} cta="Voir le détail" />
         </div>
         <div className="card-glass overflow-hidden">
           <div className="overflow-x-auto custom-scrollbar">

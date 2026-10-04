@@ -1,6 +1,6 @@
 /**
  * ─── Business Modules Store ────────────────────────────────────────────────────
- * Store des parties commerciales (Cafétéria, Lavage & Vidange), tenu à part
+ * Store des parties commerciales (Cafétéria, Magasin), tenu à part
  * des tables carburant de `AppContext`.
  *
  *   const biz = useBiz('cafeteria');

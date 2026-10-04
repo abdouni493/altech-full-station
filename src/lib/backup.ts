@@ -5,7 +5,7 @@
  *  Le bouton « Exporter .JSON » sérialisait l'état React d'`AppContext`. Trois
  *  trous, tous silencieux :
  *
- *    • les parties commerciales (Cafétéria, Lavage) vivent dans un AUTRE magasin
+ *    • les parties commerciales (Cafétéria, Magasin) vivent dans un AUTRE magasin
  *      (`biz_store`) — produits, ventes, achats, employés, inventaires : RIEN de
  *      tout cela n'était dans le fichier ;
  *    • l'état React ne garde que les 500 dernières lignes de `fuel_sales`,
@@ -118,18 +118,13 @@ export const BACKUP_TABLES: BackupTableSpec[] = [
   { table: 'permission_templates',             label: 'Modèles de permissions' },
   { table: 'activity_log',                     label: 'Journal d\'activité' },
   { table: 'client_feedbacks',                 label: 'Retours clients (page publique /client)' },
-  // Parties commerciales — Cafétéria & Lavage
-  { table: 'biz_sessions',                     label: 'Sessions de caisse (Restaurant / Cafétéria / Lavage)' },
+  // Parties commerciales — Cafétéria & Magasin
+  { table: 'biz_sessions',                     label: 'Sessions de caisse (Restaurant / Cafétéria / Magasin)' },
   // Le catalogue a sa propre table depuis le 2026-08-15. Le blob en garde une
   // copie, mais c'est CETTE table qui fait autorité au chargement : l'oublier
   // ici sauvegarderait un catalogue périmé sans que rien ne le signale.
-  { table: 'biz_products',                     label: 'Catalogue produits (Restaurant / Cafétéria / Lavage)' },
-  { table: 'biz_store',                        label: 'Données Restaurant, Cafétéria & Lavage (ventes, achats, employés…)' },
-  // Messages WhatsApp aux clients (migration 2026-08-22). Le journal se
-  // sauvegarde ; la file d'attente aussi, parce qu'une restauration faite après
-  // une panne de poste doit rendre les messages qui n'étaient pas encore partis.
-  { table: 'whatsapp_messages',                label: 'Journal des messages WhatsApp' },
-  { table: 'whatsapp_outbox',                  label: 'Messages WhatsApp en attente' },
+  { table: 'biz_products',                     label: 'Catalogue produits (Restaurant / Cafétéria / Magasin)' },
+  { table: 'biz_store',                        label: 'Données Restaurant, Cafétéria & Magasin (ventes, achats, employés…)' },
 ];
 
 /** Le blob des parties commerciales : restauré par FUSION, jamais en écrasement. */

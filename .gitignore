@@ -9,11 +9,6 @@ coverage/
 supabase/.temp/
 backups/
 
-# Secrets de la passerelle WhatsApp : clé API, clé Tailscale, mot de passe
-# Postgres. Ils n'entrent jamais dans Git — prévoir leur transport à la main
-# lors d'un déménagement de poste (voir evolution/README.md).
-evolution/.env
-!evolution/.env.example
 
 # Réglages personnels de Claude Code
 .claude/settings.local.json

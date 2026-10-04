@@ -490,7 +490,7 @@ export function ProductModal({
   const [scanNote, setScanNote] = useState('');
   /**
    * Les références et la compatibilité véhicule ne concernent que la partie qui
-   * vend des PIÈCES : le Lavage & Vidange. Un sandwich de cafétéria n'a ni
+   * vend des PIÈCES : le Magasin. Un sandwich de cafétéria n'a ni
    * numéro d'origine ni voiture compatible.
    */
   const showAutoParts = biz.module === 'lavage';
@@ -766,7 +766,7 @@ export function ProductModal({
         </div>
 
         {/* ── Références & compatibilité véhicule ────────────────────────────
-            Propres à la partie Lavage & Vidange, qui vend des pièces
+            Propres à la partie Magasin, qui vend des pièces
             détachées : une pièce se cherche par son numéro ou par la voiture
             qu'elle équipe, jamais par son nom de rayon. Ces deux blocs
             n'apparaissent pas en Cafétéria, où ils n'auraient aucun sens. */}
@@ -912,7 +912,7 @@ export function ProductModal({
   );
 }
 
-// ─── Le parc d'un client (Lavage & Vidange) ─────────────────────────────────
+// ─── Le parc d'un client (Magasin) ─────────────────────────────────
 /**
  * ─── POURQUOI LES VOITURES VIVENT SUR LA FICHE DU CLIENT ───────────────────────
  *

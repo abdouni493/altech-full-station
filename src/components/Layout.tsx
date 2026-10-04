@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Navbar from "./Navbar";
 import { useAppState } from "../store/AppContext";
-import WhatsAppOutboxRunner from "./WhatsAppOutboxRunner";
 
 /** localStorage key holding the desktop "sidebar hidden" preference. */
 const SIDEBAR_HIDDEN_KEY = "sidebarHidden";
@@ -93,12 +92,6 @@ const Layout = ({ children, onRouteChange, onLogout }: { children: React.ReactNo
         </main>
       </div>
 
-      {/* ── Le rattrapage des messages WhatsApp en attente ────────────────
-          Monté dans la coquille de l'application, donc actif quel que soit
-          l'écran ouvert. Il ne rend rien tant que la file est vide. Voir
-          `WhatsAppOutboxRunner` : en serverless, rien ne tourne entre deux
-          requêtes — c'est le navigateur ouvert qui déclenche le vidage. */}
-      <WhatsAppOutboxRunner />
     </div>
   );
 };

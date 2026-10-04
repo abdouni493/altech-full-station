@@ -2,7 +2,7 @@
  * ─── « Générer un rapport » — le relevé de compte d'un client sur une période ───
  *
  * Ouvert depuis le bouton Historique de n'importe quelle activité (Carburant,
- * Cafétéria, Lavage & Vidange). L'utilisateur choisit une date de début et
+ * Cafétéria, Magasin). L'utilisateur choisit une date de début et
  * une date de fin — ou un raccourci — voit le relevé se recalculer en direct,
  * puis l'imprime sur le gabarit de la Fiche Journalière.
  *

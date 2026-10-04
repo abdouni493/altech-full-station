@@ -9,7 +9,6 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import {
   signIn, signUpAdmin, signOut, adminExists, probeBackend, BACKEND_STATUS_MESSAGE,
-  DEMO_ACCOUNTS, DemoAccount,
 } from "../lib/supabase";
 import { useAppState } from "../store/AppContext";
 
@@ -26,18 +25,6 @@ const features = [
   { icon: BarChart3, titleKey: "login.feature_analytics_title", descKey: "login.feature_analytics_desc" },
   { icon: Clock,     titleKey: "login.feature_teams_title",     descKey: "login.feature_teams_desc" },
 ];
-
-// ─── Demo quick access ────────────────────────────────────────────────────────
-const QUICK_ACCESS_META: Record<string, { icon: React.ElementType; color: string }> = {
-  admin:        { icon: Crown,           color: "#003087" },
-  gerant:       { icon: Briefcase,       color: "#4c1d95" },
-  chef_brigade: { icon: Users,           color: "#0f766e" },
-  pompiste:     { icon: Fuel,            color: "#b45309" },
-  magasin:      { icon: Store,           color: "#475569" },
-  restaurant:   { icon: UtensilsCrossed, color: "#be123c" },
-  cafeteria:    { icon: Coffee,          color: "#92400e" },
-  lavage:       { icon: Droplets,        color: "#0e7490" },
-};
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 const Login = ({ onLogin }: LoginProps) => {
@@ -85,7 +72,7 @@ const Login = ({ onLogin }: LoginProps) => {
     document.documentElement.dir = i18n.dir();
   };
 
-  // ── Login (demo accounts, no database) ────────────────────────────────────
+  // ── Login (Supabase Auth: email or username) ────────────────────────────────────
   const handleLogin = async (e?: React.FormEvent, creds?: { email: string; password: string }) => {
     e?.preventDefault();
     setLoginError(null);
@@ -132,13 +119,6 @@ const Login = ({ onLogin }: LoginProps) => {
       return;
     }
     onLogin(role, result.user?.id);
-  };
-
-  /** One click on a demo profile: fill the form and sign in straight away. */
-  const quickLogin = (acc: DemoAccount) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    handleLogin(undefined, { email: acc.email, password: acc.password });
   };
 
   // ── Create admin account via Supabase auth ────────────────────────────────
@@ -329,9 +309,9 @@ const Login = ({ onLogin }: LoginProps) => {
                     <label className="block text-xs font-bold text-slate-600 mb-1.5">{t('login.email')}</label>
                     <div className="relative">
                       <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
-                      <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                      <input type="text" value={email} onChange={e => setEmail(e.target.value)}
                         className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400/40 focus:border-yellow-400 transition-all"
-                        placeholder="email@exemple.dz" autoComplete="email" />
+                        placeholder="email ou nom d'utilisateur" autoComplete="username" />
                     </div>
                   </div>
 
@@ -359,43 +339,6 @@ const Login = ({ onLogin }: LoginProps) => {
                     )}
                   </button>
                 </form>
-
-                {/* ── Demo: one-click access to every profile ── */}
-                <div className="flex items-center gap-3 my-5">
-                  <div className="flex-1 h-px bg-slate-100" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Accès rapide — version démo
-                  </span>
-                  <div className="flex-1 h-px bg-slate-100" />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {DEMO_ACCOUNTS.map(acc => {
-                    const meta = QUICK_ACCESS_META[acc.moduleKey || acc.role] || QUICK_ACCESS_META.admin;
-                    const Icon = meta.icon;
-                    return (
-                      <button
-                        key={acc.userId}
-                        type="button"
-                        disabled={loading}
-                        onClick={() => quickLogin(acc)}
-                        title={`${acc.name} — ${acc.email} / ${acc.password}`}
-                        className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-left hover:shadow-md hover:border-slate-300 active:scale-[0.98] transition-all disabled:opacity-60"
-                      >
-                        <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                          style={{ background: `${meta.color}14`, color: meta.color }}>
-                          <Icon className="w-4 h-4" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-xs font-black text-slate-700 truncate">{acc.label}</span>
-                          <span className="block text-[10px] text-slate-400 truncate">{acc.name}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="text-center text-[10px] text-slate-400 mt-3">
-                  Données de démonstration — aucune base de données. Mot de passe de tous les comptes : <strong>demo123</strong>
-                </p>
 
                 {/* ── Create administrator account (shown only until one exists) ── */}
                 {canCreateAdmin && (

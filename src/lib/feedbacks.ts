@@ -67,7 +67,7 @@ export const FEEDBACK_PARTS: {
   { id: 'fuel',      label: 'Carburant',            short: 'Carburant', emoji: '⛽', hint: 'Pompes, service à la piste, prix, propreté' },
   { id: 'restaurant', label: 'Restaurant',           short: 'Restaurant', emoji: '🍽️', hint: 'Plats, service en salle, accueil' },
   { id: 'cafeteria', label: 'Cafétéria',            short: 'Cafétéria', emoji: '☕', hint: 'Boissons, restauration, accueil au comptoir' },
-  { id: 'lavage',    label: 'Lavage & Vidange',  short: 'Lavage',    emoji: '🧽', hint: 'Lavage du véhicule, vidange, mécanique' },
+  { id: 'lavage',    label: 'Magasin',  short: 'Magasin',   emoji: '🛒', hint: 'Produits et accessoires du magasin' },
 ];
 
 export const FEEDBACK_PART_META: Record<FeedbackPart, { label: string; short: string; emoji: string }> =

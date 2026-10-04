@@ -24,7 +24,6 @@
  * ──────────────────────────────────────────────────────────────────────────────
  */
 import { buildRappels, carKeyOf, rappelId, addDays, daysBetween } from './rappels';
-import { normalizePhone, renderTemplate, missingTokens, displayPhone } from './whatsappCore';
 import { BizContact, BizRappel, BizReparation } from './bizConfig';
 
 let passed = 0, failed = 0;
@@ -238,42 +237,6 @@ section('9. Les dates, en journées locales — jamais en UTC');
   check('écart négatif quand la date est passée', daysBetween('2026-08-22', '2026-08-01'), -21);
 }
 
-// ─── 10. Les numéros ──────────────────────────────────────────────────────────
-section('10. Un numéro écrit de six façons désigne le même destinataire');
-{
-  const expected = '213550123456';
-  check('forme nationale', normalizePhone('0550123456'), expected);
-  check('avec des espaces', normalizePhone('0550 12 34 56'), expected);
-  check('avec des tirets', normalizePhone('0550-12-34-56'), expected);
-  check('forme internationale', normalizePhone('+213550123456'), expected);
-  check('forme internationale à l\'ancienne', normalizePhone('00213550123456'), expected);
-  check('sans le zéro initial', normalizePhone('550123456'), expected);
-
-  check('un numéro vide est refusé', normalizePhone(''), null);
-  check('un numéro trop court est refusé', normalizePhone('0550'), null);
-  check('du texte est refusé', normalizePhone('à rappeler'), null);
-  check('un fixe à 10 chiffres reste accepté', normalizePhone('045123456' + '7'), '213451234567');
-
-  check('affichage lisible', displayPhone('213550123456'), '+213 550 12 34 56');
-}
-
-// ─── 11. Les modèles ──────────────────────────────────────────────────────────
-section('11. Un modèle rempli — et ce qui arrive aux jetons inconnus');
-{
-  const body = 'Bonjour {client}, votre {vehicule} ({kilometrage} km) — {station}.';
-  const out = renderTemplate(body, {
-    client: 'Belaid', vehicule: 'Renault Clio', kilometrage: '84 000', station: 'RCLMC',
-  });
-  check('tous les jetons remplis', out, 'Bonjour Belaid, votre Renault Clio (84 000 km) — RCLMC.');
-
-  const partial = renderTemplate('Bonjour {client}, votre {vehicule}.', { client: 'Belaid', vehicule: undefined });
-  check('un jeton CONNU mais vide disparaît', partial, 'Bonjour Belaid, votre .');
-
-  const unknown = renderTemplate('Bonjour {clientt}.', { client: 'Belaid' });
-  check("un jeton MAL ORTHOGRAPHIÉ reste visible", unknown, 'Bonjour {clientt}.');
-  check('et il est signalé avant l\'envoi', missingTokens(unknown), ['{clientt}']);
-  check('un texte propre ne signale rien', missingTokens('Bonjour Belaid.'), []);
-}
 
 // ─── 12. Le délai PROPRE À CHAQUE VÉHICULE ────────────────────────────────────
 section('12. Un délai posé sur un véhicule l\'emporte sur le réglage de la partie');

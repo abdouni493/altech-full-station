@@ -617,7 +617,7 @@ export const CAISSE_ID = 'CAISSE' as const;
 
 /**
  * Pseudo-account id of the cash box of ONE activity of the station. Money can
- * be moved from the caisse of a part (Carburant, Cafétéria, Lavage) to a bank
+ * be moved from the caisse of a part (Carburant, Cafétéria, Magasin) to a bank
  * account or to another caisse exactly like from the caisse générale: the
  * movement is a single `TRANSFER` line whose `accountFrom` / `accountTo` hold
  * these ids, so both sides can never disagree.
@@ -638,7 +638,7 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   [CAISSE_PART_ID.carburant]: 'Caisse Carburant',
   [CAISSE_PART_ID.restaurant]: 'Caisse Restaurant',
   [CAISSE_PART_ID.cafeteria]: 'Caisse Cafétéria',
-  [CAISSE_PART_ID.lavage]: 'Caisse Lavage & Vidange',
+  [CAISSE_PART_ID.lavage]: 'Caisse Magasin',
 };
 
 /** `true` when the id designates a cash box rather than a bank account. */
@@ -1115,7 +1115,7 @@ export interface UserPermissions {
 }
 
 /** Every role the app can be signed in as. `module_worker` is an employee of one
- *  of the business parts (Restaurant / Cafétéria / Lavage / Magasin). */
+ *  of the business parts (Restaurant / Cafétéria / Magasin). */
 export type AppUserRole =
   | 'admin' | 'pompiste' | 'chef_brigade' | 'gerant' | 'magasin' | 'module_worker';
 
@@ -1242,7 +1242,7 @@ export interface AppState {
   currentUserAvatarUrl?: string;
   currentUserPermissions?: UserPermissions;
   /** Set only for `module_worker` sessions — the employee of a business part
-   *  (Restaurant / Cafétéria / Lavage / Magasin) and their `iface.action` grants. */
+   *  (Restaurant / Cafétéria / Magasin) and their `iface.action` grants. */
   currentModuleWorker?: ModuleWorkerSession;
   isLoading: boolean;
 }
@@ -3875,7 +3875,7 @@ const BIZ_NONE: BizPermission = { voir: false, creer: false, modifier: false, su
 
 /**
  * Permission flags of the connected user for one interface of a business part
- * (Restaurant / Cafétéria / Lavage / Magasin).
+ * (Restaurant / Cafétéria / Magasin).
  *
  *   const perm = useBizPermission('restaurant', 'stock');
  *   {perm.creer && <button>Nouveau produit</button>}

@@ -385,7 +385,7 @@ export function moduleCaisseMovements(
     }))),
     ...(st.reparations || []).flatMap(r => docPaymentSlices(r, num(r.paid)).map(l => ({
       id: `rep-${l.id}`, date: l.date, nature: 'Vente',
-      label: `${r.kind === 'lavage' ? 'Lavage' : r.kind === 'reparation' ? 'Vidange' : 'Lavage + Vidange'} ${r.ref} — ${r.clientName}`,
+      label: `Prestation ${r.ref} — ${r.clientName}`,
       amount: l.amount,
     }))),
     // Un règlement encaissé sur la DETTE INITIALE d'un client est de l'argent

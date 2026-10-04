@@ -1,6 +1,6 @@
 /**
  * ─── FORME D'UN ÉTAT VIDE (aucune donnée constante) ────────────────────────────
- * Les parties Cafétéria et Lavage & Vidange n'affichent QUE ce que contient la
+ * Les parties Cafétéria et Magasin n'affichent QUE ce que contient la
  * ligne `biz_store` de Supabase. Ce fichier ne fournit donc plus que la FORME
  * d'un état — toutes les collections vides — pour que le store ait quelque chose
  * à rendre avant que la première lecture du serveur soit revenue.

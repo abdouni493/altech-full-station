@@ -414,7 +414,7 @@ export function computeWorkingCapital(
 
   const cash = block('cash', 'Caisses (espèces)',
     'Les quatre tiroirs de la station — les mêmes soldes que l\'écran Caisse Générale', cashRows, 1,
-    `${fmt(activitiesCash)} dans les caisses des activités (Carburant, Restaurant, Cafétéria, Lavage) `
+    `${fmt(activitiesCash)} dans les caisses des activités (Carburant, Restaurant, Cafétéria, Magasin) `
     + `et ${fmt(financeCash)} dans celle de la Finance, soit ${fmt(activitiesCash + financeCash)} d'espèces. `
     + 'Chaque tiroir est lu sur SES mouvements : ceux de l\'activité pour les trois premiers, les lignes du grand '
     + 'livre sans activité pour la Finance. '

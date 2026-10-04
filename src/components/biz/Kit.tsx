@@ -1,7 +1,7 @@
 /**
  * ─── Shared UI kit for the business-module pages ───────────────────────────────
  * Thin wrappers over the app's existing CSS component classes (index.css) so all
- * new Restaurant / Cafétéria / Lavage / Magasin screens stay visually identical
+ * new Restaurant / Cafétéria / Magasin screens stay visually identical
  * to the rest of StationPro. Hardcoded French labels are auto-translated to
  * Arabic at runtime (see lib/autoTranslate.ts).
  * ──────────────────────────────────────────────────────────────────────────────

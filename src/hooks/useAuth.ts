@@ -8,7 +8,7 @@ export interface Session { access_token: string; refresh_token?: string; user: U
 
 export type UserRole =
   | 'admin' | 'pompiste' | 'chef_brigade' | 'gerant' | 'magasin'
-  /** Employee of a business part: Restaurant / Cafétéria / Lavage / Magasin. */
+  /** Employee of a business part: Restaurant / Cafétéria / Magasin. */
   | 'module_worker';
 
 export interface AuthState {

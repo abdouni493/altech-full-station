@@ -10,7 +10,7 @@
  *    chèques) et le décalage — plus la comptabilité de la brigade.
  *  • Employés Cafétéria → leurs sessions de travail (ouverture, fermeture, fond de
  *    caisse, théorique, crédit, décalage) et toutes les ventes de chaque session.
- *  • Employés Lavage & Vidange → leur pourcentage, la liste de TOUS les travaux
+ *  • Employés Magasin → leur pourcentage, la liste de TOUS les travaux
  *    qui leur sont assignés (prestation par prestation), la base retenue, leur
  *    part, et si elle est déjà réglée.
  *  • Tout le monde → salaires versés, acomptes, absences, compte de connexion.
@@ -30,7 +30,7 @@ export const PART_META: Record<WorkforcePart, { label: string; emoji: string; co
   carburant: { label: 'Carburant', emoji: '⛽', color: '#003087' },
   restaurant: { label: 'Restaurant', emoji: '🍽️', color: '#be123c' },
   cafeteria: { label: 'Cafétéria', emoji: '☕', color: '#b45309' },
-  lavage: { label: 'Lavage & Vidange', emoji: '🧽', color: '#0e7490' },
+  lavage: { label: 'Magasin', emoji: '🛒', color: '#0e7490' },
 };
 
 // ─── Detail rows ─────────────────────────────────────────────────────────────

@@ -106,7 +106,7 @@ export default function ModuleCaisse({ moduleKey }: { moduleKey: ModuleKey }) {
   /**
    * Les employés de l'activité et TOUT ce qu'ils ont fait sur la période — le
    * même calcul que le rapport général. Réservé aux activités de service
-   * (Lavage & Vidange) : une cafétéria n'a pas de travaux nominatifs.
+   * (Magasin) : une cafétéria n'a pas de travaux nominatifs.
    */
   const crew: WorkforceWorker[] = useMemo(
     () => (cfg.isService ? computeBizWorkforce(biz.state, moduleKey, range.from, range.to) : []),
@@ -160,7 +160,7 @@ export default function ModuleCaisse({ moduleKey }: { moduleKey: ModuleKey }) {
         tabs={[
           { id: 'tresorerie', label: 'Trésorerie', icon: Wallet },
           // Le travail des employés n'a d'onglet que là où il existe : une
-          // activité de service (Lavage & Vidange) paie ses employés SUR leurs
+          // activité de service (Magasin) paie ses employés SUR leurs
           // interventions, et c'est ici qu'on les paie.
           ...(cfg.isService ? [{ id: 'travaux', label: 'Travaux des employés', icon: Car }] : []),
           { id: 'sessions', label: 'Sessions de travail', icon: Clock },

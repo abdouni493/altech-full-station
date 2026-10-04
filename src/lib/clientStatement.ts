@@ -2,7 +2,7 @@
  * ─── Le relevé de compte d'un client, sur la période qu'on lui demande ─────────
  *
  * Trois écrans montrent l'historique d'un client — Carburant, Cafétéria,
- * Lavage & Vidange — et les trois lisaient des données différentes, avec des
+ * Magasin — et les trois lisaient des données différentes, avec des
  * colonnes différentes, sans jamais pouvoir sortir un document imprimable.
  *
  * Ce module ramène les trois à UNE seule forme, le `ClientStatement` :
@@ -130,7 +130,7 @@ export interface StatementParty {
 
 export interface ClientStatement {
   client: StatementParty;
-  /** « Carburant », « Cafétéria », « Lavage & Vidange ». */
+  /** « Carburant », « Cafétéria », « Magasin ». */
   partLabel: string;
   /** Bornes demandées, `''` quand la borne est ouverte. */
   from: string;
@@ -497,7 +497,7 @@ function advanceDepositLines(client: BizContact | null): StatementLine[] {
     }));
 }
 
-/** Le relevé d'un client d'une partie (Cafétéria, Lavage & Vidange). */
+/** Le relevé d'un client d'une partie (Cafétéria, Magasin). */
 export function bizClientStatement(
   state: ModuleState, client: BizContact | null, partLabel: string, from = '', to = '',
 ): ClientStatement {

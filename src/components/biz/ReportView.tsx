@@ -789,7 +789,7 @@ export default function ReportView({ report: r, serviceWorkers }: {
   report: PartReport;
   /**
    * Les employés de l'activité, quand celle-ci est une activité de SERVICE
-   * (Lavage & Vidange) : le rapport déplie alors, employé par employé, tout ce
+   * (Magasin) : le rapport déplie alors, employé par employé, tout ce
    * qu'ils ont fait sur la période. Absent ailleurs — un rapport de cafétéria
    * ou de carburant n'a pas de travaux nominatifs à montrer.
    */

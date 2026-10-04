@@ -1,7 +1,7 @@
 /**
  * ─── Employés & Personnel (rapport général) ────────────────────────────────────
  * Liste TOUS les employés de la station — pompistes, chefs de brigade, gérants,
- * employés magasin, cafétéria, lavage & vidange — et déplie pour chacun le
+ * employés magasin, cafétéria, magasin — et déplie pour chacun le
  * détail complet de son activité sur la période :
  *
  *  • Pompiste / chef  → chaque brigade assignée : piste, pompes, index de chaque
@@ -346,7 +346,7 @@ function WorkRow({ w, rate }: { w: WorkforceWorker['works'][number]; rate: numbe
 /**
  * Les trois mouvements d'argent d'un employé sur la période. Partagés par la
  * fiche complète (« Employés & Personnel ») et par le panneau des travaux du
- * rapport Lavage & Vidange : une même ligne de paie ne peut donc pas s'écrire
+ * rapport Magasin : une même ligne de paie ne peut donc pas s'écrire
  * de deux façons selon l'écran d'où on la regarde.
  */
 function MoneyMovements({ w }: { w: WorkforceWorker }) {
@@ -731,7 +731,7 @@ export default function WorkforceView({ report }: { report: WorkforceReport }) {
 /**
  * ─── QUI A TRAVAILLÉ, SUR QUOI, ET CE QUE ÇA LUI FAIT ─────────────────────────
  *
- * Le rapport de la partie Lavage & Vidange annonçait le chiffre d'affaires des
+ * Le rapport de la partie Magasin annonçait le chiffre d'affaires des
  * prestations sans jamais dire QUI les avait faites. Or la paie de ces employés
  * EST un pourcentage de leurs propres travaux : pour vérifier un montant que le
  * rapport affichait déjà, le gérant devait sortir de l'écran et rouvrir la fiche

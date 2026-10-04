@@ -39,7 +39,7 @@ import Feedbacks from "./pages/Feedbacks";
 import ClientFeedback from "./pages/ClientFeedback";
 import { FeedbackProvider } from "./store/FeedbackContext";
 
-// ─── Business modules (Cafétéria / Lavage & Vidange) ───────────────────────
+// ─── Business modules (Cafétéria / Magasin) ───────────────────────
 import { BizProvider } from "./store/BizContext";
 import { MODULES, ModuleKey } from "./lib/bizConfig";
 import ModuleStock from "./pages/modules/ModuleStock";
@@ -50,14 +50,11 @@ import ModuleComptoir from "./pages/modules/ModuleComptoir";
 import ModulePOS from "./pages/modules/ModulePOS";
 import ModuleSales from "./pages/modules/ModuleSales";
 import ModuleClients from "./pages/modules/ModuleClients";
-import ModuleMessages from "./pages/modules/ModuleMessages";
 import ModuleSuppliers from "./pages/modules/ModuleSuppliers";
 import ModuleWorkers from "./pages/modules/ModuleWorkers";
 import ModuleExpenses from "./pages/modules/ModuleExpenses";
 import ModuleCaisse from "./pages/modules/ModuleCaisse";
 import ModuleReports from "./pages/modules/ModuleReports";
-import ModuleReparations from "./pages/modules/ModuleReparations";
-import ModuleEncaissements from "./pages/modules/ModuleEncaissements";
 import ModuleFeedbacks from "./pages/modules/ModuleFeedbacks";
 import GeneralReports from "./pages/GeneralReports";
 
@@ -74,8 +71,6 @@ function buildModuleRoutes(key: ModuleKey): ModuleRoute[] {
     routes.push({ path: `${b}/${sub}`, iface: sub, moduleKey: key, element });
 
   if (cfg.isService) {
-    add('reparations', <ModuleReparations moduleKey={key} />);
-    add('encaissements', <ModuleEncaissements moduleKey={key} />);
     // Point de vente + Ventes moved here when the Magasin part was removed.
     add('pos', <ModulePOS moduleKey={key} />);
     add('sales', <ModuleSales moduleKey={key} />);
@@ -83,9 +78,6 @@ function buildModuleRoutes(key: ModuleKey): ModuleRoute[] {
     add('inventaire', <ModuleInventaire moduleKey={key} />);
     add('purchases', <ModulePurchases moduleKey={key} />);
     add('clients', <ModuleClients moduleKey={key} />);
-    // Les rappels de passage et les envois WhatsApp n'ont de sens que pour une
-    // partie de service : une cafétéria ne rappelle personne pour un lavage.
-    add('messages', <ModuleMessages moduleKey={key} />);
     add('suppliers', <ModuleSuppliers moduleKey={key} />);
     add('workers', <ModuleWorkers moduleKey={key} />);
     add('expenses', <ModuleExpenses moduleKey={key} />);
@@ -209,7 +201,7 @@ function AdminOnlyRoute({ element }: { element: React.ReactElement }): React.Rea
 
 // ─── Business-part route guard ────────────────────────────────────────────────
 /**
- * Gates a Restaurant / Cafétéria / Lavage / Magasin page. Employees of a part
+ * Gates a Restaurant / Cafétéria / Magasin page. Employees of a part
  * only reach an interface they were granted "voir" on, and never a page of
  * another part. Everyone else (admin) passes through.
  */
@@ -420,7 +412,7 @@ function AppContent({
             });
           }
         } else if (userRole === 'module_worker') {
-          // Employee of a business part (Restaurant / Cafétéria / Lavage /
+          // Employee of a business part (Restaurant / Cafétéria / Magasin /
           // Magasin): their identity, part and grants live in module_workers.
           const mw = await getMyModuleWorker();
           if (mw) {
@@ -536,7 +528,7 @@ function AppRoutes({ onLogout }: { onLogout: () => void }) {
         <Route path="/statistics"       element={<ProtectedRoute element={<Statistics />} moduleId="Statistiques" />} />
         <Route path="/reports"          element={<ProtectedRoute element={<Reports />} moduleId="Rapports" />} />
 
-        {/* Business modules (Cafétéria / Lavage & Vidange) */}
+        {/* Business modules (Cafétéria / Magasin) */}
         {MODULE_ROUTES.map(r => React.createElement(Route, {
           key: r.path,
           path: r.path,

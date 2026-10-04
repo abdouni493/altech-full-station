@@ -1,7 +1,7 @@
 /**
  * ─── Écran « Retours clients » d'une partie ────────────────────────────────────
  *
- * Le même tableau de bord sert les trois parties (Carburant, Cafétéria, Lavage) :
+ * Le même tableau de bord sert les trois parties (Carburant, Cafétéria, Magasin) :
  * seul l'avis affiché change. Chaque avis est une carte datée avec le nom du
  * client, ses coordonnées, son message, et trois décisions. Le nom et le
  * téléphone sont FACULTATIFS sur la page publique : un avis peut arriver

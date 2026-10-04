@@ -1,7 +1,7 @@
 /**
  * ─── Business Modules Configuration & Types ────────────────────────────────────
  * Self-contained data model for the commerce/production parts of the sidebar:
- * Restaurant, Cafétéria and Lavage & Vidange (the Magasin point-de-vente &
+ * Restaurant, Cafétéria and Magasin (the Magasin point-de-vente &
  * ventes screens were folded into the Lavage part).
  *
  * These modules live on a dedicated store (`BizContext`, persisted as one JSON
@@ -454,7 +454,7 @@ export interface BizContact {
    */
   advancePayments?: BizDocPayment[];
   /**
-   * ─── LE PARC DU CLIENT (Lavage & Vidange) ───────────────────────────────
+   * ─── LE PARC DU CLIENT (Magasin) ───────────────────────────────
    * Un client de lavage revient avec SES voitures — souvent plusieurs (la
    * sienne, celle de son épouse, l'utilitaire de la société). Les saisir à
    * chaque passage faisait perdre l'historique du véhicule et obligeait à
@@ -503,7 +503,7 @@ export interface BizWorkerPayment {
 }
 
 /**
- * Speciality of an employee of the Lavage & Vidange part. It decides which
+ * Speciality of an employee of the Magasin part. It decides which
  * employees are proposed on a « lavage » prestation and which on a
  * « vidange » one — `both` shows up on either.
  */
@@ -1232,7 +1232,7 @@ export interface ModuleConfig {
   productWord: string;    // "Plat", "Produit"…
   hasProduction: boolean; // production + comptoir + fiches
   hasComptoir: boolean;
-  isService: boolean;     // lavage & vidange flow
+  isService: boolean;     // magasin flow
 }
 
 export const MODULES: Record<ModuleKey, ModuleConfig> = {
@@ -1260,14 +1260,14 @@ export const MODULES: Record<ModuleKey, ModuleConfig> = {
   },
   lavage: {
     key: 'lavage',
-    label: 'Lavage & Vidange',
-    short: 'Lavage',
-    emoji: '🧽',
-    base: '/lavage',
+    label: 'Magasin',
+    short: 'Magasin',
+    emoji: '🛒',
+    base: '/magasin',
     productWord: 'Produit',
     hasProduction: false,
     hasComptoir: false,
-    isService: true,
+    isService: false,
   },
 };
 
@@ -1283,7 +1283,6 @@ export const MODULE_INTERFACES: { id: string; label: string }[] = [
   { id: 'reparations', label: 'Vidanges & Lavage' },
   { id: 'encaissements', label: 'Demandes d\'encaissement' },
   { id: 'clients', label: 'Clients' },
-  { id: 'messages', label: 'Messages clients' },
   { id: 'suppliers', label: 'Fournisseurs' },
   { id: 'workers', label: 'Employés' },
   { id: 'expenses', label: 'Dépenses' },
@@ -1309,8 +1308,8 @@ export function interfacesForModule(key: ModuleKey): { id: string; label: string
   const cfg = MODULES[key];
   const ids = cfg.isService
     ? [
-        'reparations', 'encaissements', 'pos', 'sales', 'stock', 'inventaire', 'purchases',
-        'clients', 'messages', 'suppliers', 'workers', 'expenses', 'caisse', 'reports', 'feedbacks',
+        'pos', 'sales', 'stock', 'inventaire', 'purchases',
+        'clients', 'suppliers', 'workers', 'expenses', 'caisse', 'reports', 'feedbacks',
       ]
     : [
         'stock', 'inventaire', 'purchases',

@@ -328,7 +328,7 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
   const biz = useBiz(moduleKey);
   const { products, suppliers } = biz.state;
   const isEdit = !!initial;
-  /** Pièces détachées : la partie Lavage & Vidange est la seule concernée. */
+  /** Pièces détachées : la partie Magasin est la seule concernée. */
   const isLavage = moduleKey === 'lavage';
 
   const [items, setItems] = useState<BizLineItem[]>(initial?.items || []);

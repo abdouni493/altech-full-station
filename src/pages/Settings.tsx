@@ -37,7 +37,6 @@ import {
 } from "../lib/backup";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import WhatsAppSettingsPanel from "../components/WhatsAppSettingsPanel";
 import QrCodePanel from "../components/QrCodePanel";
 
 const Settings = () => {
@@ -268,7 +267,7 @@ const Settings = () => {
       const flushed = await bizSync.flush();
       if (!flushed.ok) {
         const goOn = window.confirm(
-          `Des modifications Restaurant / Cafétéria / Lavage n'ont pas pu être envoyées au serveur :\n\n${flushed.error}\n\n` +
+          `Des modifications Restaurant / Cafétéria / Magasin n'ont pas pu être envoyées au serveur :\n\n${flushed.error}\n\n` +
           `La sauvegarde ne les contiendra donc pas. Continuer quand même ?`,
         );
         if (!goOn) { setBackupBusy(false); setBackupStep(null); return; }
@@ -339,7 +338,7 @@ const Settings = () => {
         const n = isLegacyBundle(raw) ? legacyRowCount(raw) : 0;
         window.alert(
           "Ce fichier vient de l'ANCIENNE sauvegarde (format « photo de l'écran »).\n\n" +
-          `Il ne contient ni la Cafétéria ni le Lavage, et ses colonnes ne correspondent pas à celles de la base${n ? ` (${n} lignes reconnues)` : ""}.\n\n` +
+          `Il ne contient ni la Cafétéria ni le Magasin, et ses colonnes ne correspondent pas à celles de la base${n ? ` (${n} lignes reconnues)` : ""}.\n\n` +
           "Il n'est donc pas restaurable sans risque d'abîmer les données actuelles.\n" +
           "Refaites une sauvegarde avec le nouveau bouton : elle, sera restaurable.",
         );
@@ -474,7 +473,6 @@ const Settings = () => {
     { id: "paie", label: "Paramètres Paie", icon: DollarSign },
     { id: "appearance", label: "Apparence & Langue", icon: Palette },
     { id: "tpe", label: "Caisse TPE", icon: CreditCard },
-    { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
     { id: "qrcode", label: "QR Code", icon: QrCode },
     { id: "backup", label: "Sauvegarde & Système", icon: Database },
   ];
@@ -1207,16 +1205,6 @@ const Settings = () => {
                   </motion.div>
                 )}
 
-                {/* ── WHATSAPP ──
-                    La mise en service du téléphone de la station tient tout
-                    entière dans ce panneau : instance, QR code, webhook. Voir
-                    `src/components/WhatsAppSettingsPanel.tsx` pour ce qu'il
-                    s'interdit d'afficher (clé, jeton, URL complète). */}
-                {activeSection === "whatsapp" && (
-                  <motion.div key="whatsapp" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-                    <WhatsAppSettingsPanel />
-                  </motion.div>
-                )}
 
                 {/* ── QR CODE ──
                     Une adresse en carré noir et blanc, calculée sur le poste
@@ -1264,7 +1252,7 @@ const Settings = () => {
                         style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.75)" }}>
                         <span className="text-yellow-400 uppercase tracking-widest">Contenu :</span>{" "}
                         station-service (cuves, pompes, brigades, ventes, achats, bons, factures, trésorerie, personnel, clients, fournisseurs)
-                        {" + "}Restaurant, Cafétéria &amp; Lavage (produits, ventes, achats, employés, inventaires, caisse).
+                        {" + "}Restaurant, Cafétéria &amp; Magasin (produits, ventes, achats, employés, inventaires, caisse).
                         <span className="block mt-2 text-yellow-400/80">
                           Lu directement dans la base, sans limite de lignes — l'historique entier, pas seulement les 500 dernières ventes.
                         </span>
