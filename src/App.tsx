@@ -40,6 +40,7 @@ import ClientFeedback from "./pages/ClientFeedback";
 import Armoires from "./pages/Armoires";
 import Transfers from "./pages/Transfers";
 import { FeedbackProvider } from "./store/FeedbackContext";
+import AppErrorBoundary from "./components/AppErrorBoundary";
 
 // ─── Business modules (Cafétéria / Magasin) ───────────────────────
 import { BizProvider } from "./store/BizContext";
@@ -331,7 +332,7 @@ export default function App() {
     <Router>
       <Routes>
         <Route path="/client" element={<ClientFeedback />} />
-        <Route path="*"       element={<AuthGate />} />
+        <Route path="*"       element={<AppErrorBoundary><AuthGate /></AppErrorBoundary>} />
       </Routes>
     </Router>
   );
