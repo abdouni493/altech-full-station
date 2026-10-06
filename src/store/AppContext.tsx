@@ -4296,7 +4296,9 @@ export const AppProvider = ({ children }: AppProviderProps) => {
         catch (err) { console.error('[realtime] Refetch failed for armoires:', err); }
       }, 700);
     };
-    for (const table of ['armoires', 'armoire_stock', 'stock_transfers', 'stock_transfer_items', 'armoire_sales', 'armoire_purchases']) {
+    // (`armoire_stock` est déjà écoutée via `tableMap` : un second abonnement au
+    // même canal fait planter Supabase Realtime.)
+    for (const table of ['armoires', 'stock_transfers', 'stock_transfer_items', 'armoire_sales', 'armoire_purchases']) {
       unsubs.push(subscribeTable(table, refetchArmoires));
     }
     unsubs.push(() => { if (armoireTimer) clearTimeout(armoireTimer); });
