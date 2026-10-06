@@ -20,7 +20,8 @@ import {
   ArrowLeft, Loader2, ShieldCheck, Clock, Info,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { FEEDBACK_PARTS, FeedbackPart, submitClientFeedback } from '../lib/feedbacks';
+import { activeFeedbackParts, FeedbackPart, submitClientFeedback } from '../lib/feedbacks';
+import { applyMagasinSettings } from '../lib/bizConfig';
 
 /** Nom + logo de la station, lisibles sans compte (RPC `public_station_identity`). */
 function useStationIdentity() {
@@ -31,7 +32,9 @@ function useStationIdentity() {
       try {
         const { data, error } = await supabase.rpc('public_station_identity');
         if (!alive || error || !data) return;
-        const row = data as { name?: string; logo_url?: string };
+        const row = data as { name?: string; logo_url?: string; magasin1_name?: string; magasin2_name?: string; magasin2_enabled?: boolean };
+        // Noms des magasins + second magasin : la page publique les propose aussi.
+        applyMagasinSettings({ magasin1Name: row.magasin1_name, magasin2Name: row.magasin2_name, magasin2Enabled: !!row.magasin2_enabled });
         setIdentity({ name: row.name || undefined, logoUrl: row.logo_url || undefined });
       } catch { /* la page se passe très bien de l'identité */ }
     })();
@@ -123,7 +126,7 @@ export default function ClientFeedback() {
                 </p>
                 <p className="text-xs text-slate-400 mb-3">Choisissez la partie de la station dont vous voulez parler.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {FEEDBACK_PARTS.map(p => {
+                  {activeFeedbackParts().map(p => {
                     const active = part === p.id;
                     return (
                       <button

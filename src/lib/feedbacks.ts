@@ -23,9 +23,10 @@
  * ──────────────────────────────────────────────────────────────────────────────
  */
 import { supabase } from './supabase';
+import { MODULES, isMagasin2Enabled } from './bizConfig';
 
 /** Partie de la station visée par un avis. `fuel` = station-service. */
-export type FeedbackPart = 'fuel' | 'restaurant' | 'cafeteria' | 'lavage';
+export type FeedbackPart = 'fuel' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
 
 export type FeedbackStatus = 'unread' | 'read';
 
@@ -67,15 +68,22 @@ export const FEEDBACK_PARTS: {
   { id: 'fuel',      label: 'Carburant',            short: 'Carburant', emoji: '⛽', hint: 'Pompes, service à la piste, prix, propreté' },
   { id: 'restaurant', label: 'Restaurant',           short: 'Restaurant', emoji: '🍽️', hint: 'Plats, service en salle, accueil' },
   { id: 'cafeteria', label: 'Cafétéria',            short: 'Cafétéria', emoji: '☕', hint: 'Boissons, restauration, accueil au comptoir' },
-  { id: 'lavage',    label: 'Magasin',  short: 'Magasin',   emoji: '🛒', hint: 'Produits et accessoires du magasin' },
+  // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
+  { id: 'lavage', get label() { return MODULES.lavage.label; }, get short() { return MODULES.lavage.short; }, emoji: '🛒', hint: 'Produits et accessoires du magasin' },
+  { id: 'magasin2', get label() { return MODULES.magasin2.label; }, get short() { return MODULES.magasin2.short; }, emoji: '🏬', hint: 'Produits et accessoires du magasin' },
 ];
 
+/** Les parties proposées : le second magasin n'y figure qu'une fois créé. */
+export const activeFeedbackParts = () =>
+  FEEDBACK_PARTS.filter(p => p.id !== 'magasin2' || isMagasin2Enabled());
+
+// Les entrées elles-mêmes (et non une copie) : les noms des magasins restent à jour.
 export const FEEDBACK_PART_META: Record<FeedbackPart, { label: string; short: string; emoji: string }> =
-  Object.fromEntries(FEEDBACK_PARTS.map(p => [p.id, { label: p.label, short: p.short, emoji: p.emoji }])) as any;
+  Object.fromEntries(FEEDBACK_PARTS.map(p => [p.id, p])) as any;
 
 /** Un identifiant de partie inconnu (base plus récente que ce build) est ignoré. */
 export const isFeedbackPart = (v: unknown): v is FeedbackPart =>
-  v === 'fuel' || v === 'restaurant' || v === 'cafeteria' || v === 'lavage';
+  v === 'fuel' || v === 'restaurant' || v === 'cafeteria' || v === 'lavage' || v === 'magasin2';
 
 // ─── Correspondance ligne ↔ objet ──────────────────────────────────────────────
 

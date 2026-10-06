@@ -21,10 +21,12 @@ import {
 import { toast } from 'react-hot-toast';
 import { newId } from '@/src/lib/utils';
 import {
-  ModuleKey, MODULES, BizProduct, BizDestruction, formatQty, productRefLabel, productCarLabel,
+  ModuleKey, MODULES, BizProduct, BizDestruction, formatQty, productRefLabel, productCarLabel, isMagasinKey,
 } from '@/src/lib/bizConfig';
 import { useBiz, useBizSync, useBizProductsSync } from '@/src/store/BizContext';
-import { useBizPermission, useAppState } from '@/src/store/AppContext';
+import { useBizPermission, useAppState, useModulePermission, MagasinKey } from '@/src/store/AppContext';
+import StockTransferBuilder from '@/src/components/armoires/StockTransferBuilder';
+import { ArrowLeftRight } from 'lucide-react';
 import {
   ProductDraft, DRAFT_STATUS_META, subscribeDrafts, getDraftsSnapshot,
   discardDraft, retryDraft, resolveDraft, failDraft, reconcileDrafts,
@@ -55,7 +57,8 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
    * Les pièces détachées — références et véhicules compatibles — n'existent que
    * dans la partie Magasin. La Cafétéria garde son écran inchangé.
    */
-  const isLavage = moduleKey === 'lavage';
+  // Premier OU second magasin : mêmes interfaces (références, véhicules…).
+  const isLavage = isMagasinKey(moduleKey);
 
   const [tab, setTab] = useState<'catalogue' | 'destructions' | 'drafts'>('catalogue');
   const [search, setSearch] = useState('');
@@ -72,6 +75,17 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
   /** Produit dont on consulte l'historique complet (achats, ventes, gains). */
   const [historyOf, setHistoryOf] = useState<BizProduct | null>(null);
   const [toDelete, setToDelete] = useState<BizProduct | null>(null);
+  /** Produit à transférer vers une armoire de la piste (magasins uniquement). */
+  const [transferOf, setTransferOf] = useState<BizProduct | null>(null);
+  const transferPerm = useModulePermission('Transferts');
+  const { armoires = [], armoireStock = [] } = useAppState();
+  /** Le bouton « Transférer » : un magasin, une armoire au moins, le droit de transférer. */
+  const canTransfer = isLavage && transferPerm.creer && armoires.length > 0;
+  /** Pleines / vides d'une bouteille de gaz (produit consigné). */
+  const bottleSplit = (p: BizProduct) => {
+    const empty = p.consigneActive ? (Number(p.emptyQty) || 0) : 0;
+    return { empty, full: (p.currentQty || 0) - empty };
+  };
   const [destroying, setDestroying] = useState<BizProduct | null>(null);
   const [viewingDestruction, setViewingDestruction] = useState<BizDestruction | null>(null);
   const [destructionToDelete, setDestructionToDelete] = useState<BizDestruction | null>(null);
@@ -395,6 +409,18 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
                   <p className={`font-black tabular-nums ${lowBadge(p) ? 'text-red-600' : 'text-emerald-600'}`}>{formatQty(p.currentQty)} <span className="text-xs font-medium text-slate-400">{p.unit}</span></p>
                 </div>
               </div>
+              {p.consigneActive && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-2 text-center">
+                    <p className="font-black text-emerald-700 tabular-nums leading-none">{formatQty(bottleSplit(p).full)}</p>
+                    <p className="text-[10px] uppercase font-bold text-emerald-500 mt-1">Pleines</p>
+                  </div>
+                  <div className="rounded-xl bg-orange-50 border border-orange-100 p-2 text-center">
+                    <p className="font-black text-orange-700 tabular-nums leading-none">{formatQty(bottleSplit(p).empty)}</p>
+                    <p className="text-[10px] uppercase font-bold text-orange-500 mt-1">Vides</p>
+                  </div>
+                </div>
+              )}
               {negative(p) && (
                 <p className="mt-2 text-[11px] font-semibold text-red-600 flex items-start gap-1 leading-tight">
                   <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
@@ -426,6 +452,7 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
                   <ActionBtn icon={Eye} tone="blue" title="Voir" onClick={() => setViewing(p)} />
                   <ActionBtn icon={Printer} tone="slate" title="Imprimer l'étiquette code-barres" onClick={() => printBarcode(p)} />
                   <ActionBtn icon={History} tone="slate" title="Historique — achats, ventes & gains" onClick={() => setHistoryOf(p)} />
+                  {canTransfer && !p.isRawMaterial && <ActionBtn icon={ArrowLeftRight} tone="green" title="Transférer vers une armoire" onClick={() => setTransferOf(p)} />}
                   {perm.modifier && <ActionBtn icon={Edit2} tone="amber" title="Modifier" onClick={() => openEdit(p)} />}
                   {perm.supprimer && <ActionBtn icon={Trash2} tone="red" title="Supprimer" onClick={() => setToDelete(p)} />}
                 </RowActions>
@@ -455,6 +482,7 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
               <td className="table-cell">
                 <div className="font-bold text-slate-700 flex items-center gap-1.5">
                   {p.name}
+                  {p.consigneActive && <span className="badge badge-yellow shrink-0">Vide / Plein</span>}
                   {p.isRawMaterial && (
                     <span title="Matière première — masquée au point de vente" className="shrink-0">
                       <Beaker className="w-3.5 h-3.5 text-amber-500" />
@@ -481,6 +509,7 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
                   <ActionBtn icon={Printer} tone="slate" title="Imprimer l'étiquette code-barres" onClick={() => printBarcode(p)} />
                   <ActionBtn icon={History} tone="slate" title="Historique — achats, ventes & gains" onClick={() => setHistoryOf(p)} />
                   {perm.modifier && <ActionBtn icon={Edit2} tone="amber" title="Modifier" onClick={() => openEdit(p)} />}
+                  {canTransfer && !p.isRawMaterial && <ActionBtn icon={ArrowLeftRight} tone="green" title="Transférer vers une armoire" onClick={() => setTransferOf(p)} />}
                   {perm.modifier && p.currentQty > 0 && <ActionBtn icon={Flame} tone="red" title="Destruction" onClick={() => setDestroying(p)} />}
                   {perm.supprimer && <ActionBtn icon={Trash2} tone="red" title="Supprimer" onClick={() => setToDelete(p)} />}
                 </RowActions>
@@ -488,6 +517,13 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
               <td className={`table-cell tabular-nums font-bold ${negative(p) ? 'text-red-600' : ''}`}
                 title={negative(p) ? `Vendu à découvert — ${formatQty(-p.currentQty)} ${p.unit || ''} à racheter` : undefined}>
                 {formatQty(p.currentQty)} {p.unit}
+                {p.consigneActive && (
+                  <div className="text-[11px] font-bold whitespace-nowrap">
+                    <span className="text-emerald-600">{formatQty(bottleSplit(p).full)} pleines</span>
+                    <span className="text-slate-300"> · </span>
+                    <span className="text-orange-600">{formatQty(bottleSplit(p).empty)} vides</span>
+                  </div>
+                )}
               </td>
               <td className="table-cell tabular-nums">
                 {p.isRawMaterial
@@ -754,6 +790,11 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
         }}
       />
 
+      {transferOf && (
+        <StockTransferBuilder open source="produits" presetModuleKey={moduleKey as MagasinKey}
+          presetProductId={transferOf.id} onClose={() => setTransferOf(null)} />
+      )}
+
       <Modal open={!!viewing} onClose={() => setViewing(null)} icon={Package} size="lg"
         title={viewing?.name || ''} subtitle="Détails du produit">
         {viewing && (
@@ -790,6 +831,40 @@ export default function ModuleStock({ moduleKey }: { moduleKey: ModuleKey }) {
                 </div>
               ))}
             </div>
+            {/* Bouteilles de gaz : le stock du magasin, puis armoire par armoire. */}
+            {(viewing.consigneActive || armoireStock.some(st => st.productId === viewing.id)) && (
+              <div className="rounded-xl border border-slate-200 overflow-hidden">
+                <div className="px-3 py-2 bg-slate-50 text-[10px] uppercase font-black text-slate-500">
+                  {viewing.consigneActive ? 'Bouteilles — magasin et armoires' : 'Stock en armoires'}
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase text-slate-400">
+                      <th className="text-left px-3 py-1.5">Emplacement</th>
+                      <th className="text-right px-3 py-1.5">Total</th>
+                      {viewing.consigneActive && <th className="text-right px-3 py-1.5">Pleines</th>}
+                      {viewing.consigneActive && <th className="text-right px-3 py-1.5">Vides</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-t border-slate-100 font-bold">
+                      <td className="px-3 py-1.5">{MODULES[moduleKey].label}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{formatQty(viewing.currentQty)}</td>
+                      {viewing.consigneActive && <td className="px-3 py-1.5 text-right tabular-nums text-emerald-600">{formatQty(bottleSplit(viewing).full)}</td>}
+                      {viewing.consigneActive && <td className="px-3 py-1.5 text-right tabular-nums text-orange-600">{formatQty(bottleSplit(viewing).empty)}</td>}
+                    </tr>
+                    {armoireStock.filter(st => st.productId === viewing.id).map(st => (
+                      <tr key={st.id} className="border-t border-slate-100">
+                        <td className="px-3 py-1.5">🗄️ {armoires.find(a => a.id === st.armoireId)?.name || 'Armoire'}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">{formatQty(st.quantity)}</td>
+                        {viewing.consigneActive && <td className="px-3 py-1.5 text-right tabular-nums text-emerald-600">{formatQty(st.quantity - (st.emptyQuantity || 0))}</td>}
+                        {viewing.consigneActive && <td className="px-3 py-1.5 text-right tabular-nums text-orange-600">{formatQty(st.emptyQuantity || 0)}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {/* Coût moyen pondéré — n'apparaît que sur les produits déjà reçus
                 par un achat au coût moyen. Le dernier prix payé est montré à
                 côté : ce ne sont pas la même information, et les confondre fait

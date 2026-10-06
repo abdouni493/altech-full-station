@@ -18,7 +18,7 @@ import { useAppState } from '@/src/store/AppContext';
 import {
   BizProduct, BizContact, BizDocPayment, BizCar, BizRappelConfig, DEFAULT_RAPPEL_CONFIG,
   MODULES, carLabel, BizProductRef, BizProductCar, BizGearbox, GEARBOX_LABEL,
-  productRefLabel, productCarLabel, productSearchFields,
+  productRefLabel, productCarLabel, productSearchFields, isMagasinKey,
 } from '@/src/lib/bizConfig';
 import { saveDraft, resolveDraft, failDraft, ProductDraft } from '@/src/lib/productDrafts';
 import { Modal, ModalPortal, Field, Input, Textarea, Select, Switch, InlineCreate } from '@/src/components/biz/Kit';
@@ -130,6 +130,7 @@ export function emptyProduct(): Partial<BizProduct> {
     sellByDetail: false, detailCapacity: 0, detailUnit: 'L', detailSalePrice: 0,
     imageUrl: '', isRawMaterial: false,
     refs: [], cars: [],
+    consigneActive: false, emptyQty: 0,
   };
 }
 
@@ -368,6 +369,12 @@ export function buildProduct(
       ? Number(form.detailSalePrice) : undefined,
     imageUrl: form.imageUrl || undefined,
     isRawMaterial,
+    // Bouteilles de gaz (vide / plein) : l'option et ses deux prix. Le nombre de
+    // vides est gardé même si l'option est retirée — la réactiver le retrouve.
+    consigneActive: !isRawMaterial && !!form.consigneActive,
+    emptyQty: Math.max(0, Number(form.emptyQty) || 0),
+    fillPrice: Number(form.fillPrice) > 0 ? Number(form.fillPrice) : undefined,
+    emptyPrice: Number(form.emptyPrice) > 0 ? Number(form.emptyPrice) : undefined,
     // Références et véhicules compatibles : les lignes vides laissées derrière
     // une hésitation ne partent pas en base, mais rien de ce qui est saisi
     // n'est perdu — c'est sur ces champs que la pièce se retrouvera.
@@ -493,7 +500,7 @@ export function ProductModal({
    * vend des PIÈCES : le Magasin. Un sandwich de cafétéria n'a ni
    * numéro d'origine ni voiture compatible.
    */
-  const showAutoParts = biz.module === 'lavage';
+  const showAutoParts = isMagasinKey(biz.module);
 
   React.useEffect(() => { setForm(initial || emptyProduct()); setHideSuggestions(false); }, [initial, open]);
 
@@ -866,6 +873,36 @@ export function ProductModal({
           <Switch checked={!!form.sellByDetail} onChange={v => set('sellByDetail', v)} />
         </div>
         )}
+        {/* ── Bouteilles de gaz : gestion « vide / plein » (consigne) ─────────
+            Le produit est un CONTENANT qui se vend plein et revient vide. Le
+            stock compte alors les bouteilles pleines ET les vides — au magasin
+            comme dans les armoires de la piste. */}
+        {isMagasinKey(biz.module) && !form.isRawMaterial && (
+          <div className={`sm:col-span-2 flex items-center justify-between rounded-xl border px-4 py-3 ${form.consigneActive ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+            <div>
+              <p className="text-sm font-bold text-slate-700">🔵 Gestion vide / plein (bouteille de gaz)</p>
+              <p className="text-xs text-slate-400">Le produit se vend plein et revient vide : le stock distingue les bouteilles pleines et vides</p>
+            </div>
+            <Switch checked={!!form.consigneActive} onChange={v => set('consigneActive', v)} />
+          </div>
+        )}
+        {isMagasinKey(biz.module) && !form.isRawMaterial && form.consigneActive && (
+          <>
+            <Field label="Prix de remplissage (1 bouteille, DA)" hint="Payé pour REMPLIR une bouteille vide">
+              <Input type="number" value={form.fillPrice ?? ''} onChange={e => set('fillPrice', e.target.value)} placeholder="Ex : 300" />
+            </Field>
+            <Field label="Prix d'une bouteille vide (DA)" hint="Payé pour acheter un contenant vide">
+              <Input type="number" value={form.emptyPrice ?? ''} onChange={e => set('emptyPrice', e.target.value)} placeholder="Ex : 2500" />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Dont bouteilles VIDES au magasin"
+                hint={`Sur ${Number(isEdit ? form.currentQty : form.principalQty) || 0} bouteille(s) au total : pleines = total − vides.`}>
+                <Input type="number" min={0} value={form.emptyQty ?? 0} onChange={e => set('emptyQty', e.target.value)} />
+              </Field>
+            </div>
+          </>
+        )}
+
         {!form.isRawMaterial && form.sellByDetail && (
           <>
             <Field label="Contenance d'une unité" required hint="Ex: 50 pour un bidon de 50 litres">

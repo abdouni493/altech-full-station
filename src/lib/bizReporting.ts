@@ -958,16 +958,26 @@ export function computeCarburantReport(app: any, from: string, to: string): Part
       revenue: f.revenue, cost: f.cost, gain: f.gain,
     })),
     ...Object.entries(shopByProduct).map(([name, v]) => ({ name, qty: v.qty, unit: v.unit, revenue: v.revenue, cost: v.cost, gain: v.revenue - v.cost })),
+    // Produits vendus depuis les ARMOIRES pendant les brigades (bouteilles…).
+    ...Object.values(fuel.brigades.flatMap(b => b.productLines).reduce((acc, l) => {
+      const e = acc[l.name] || (acc[l.name] = { name: `Armoire — ${l.name}`, qty: 0, revenue: 0, cost: 0, gain: 0 });
+      e.qty += l.qty; e.revenue += l.total; e.cost += l.cost; e.gain = e.revenue - e.cost;
+      return acc;
+    }, {} as Record<string, ProductGain>)),
   ].sort((a, b) => b.revenue - a.revenue);
 
   // Ventes : une ligne par brigade (le carburant), puis les factures magasin.
   const sales: SaleRow[] = [
     ...fuel.brigades.map(b => ({
       id: b.id, ref: b.ref, kind: 'Brigade', date: b.date, client: b.chefName,
-      total: b.revenue,
+      // Carburant + produits vendus depuis les armoires de la piste.
+      total: b.revenue + b.productSales,
       // Encaissé = espèces + TPE. Les bons clients et le manquant restent dus.
       paid: b.cash + b.tpe, rest: Math.max(0, b.credit + b.rest),
-      items: b.byFuel.map(f => ({ name: f.type, qty: f.liters, unitPrice: f.price, total: f.revenue })),
+      items: [
+        ...b.byFuel.map(f => ({ name: f.type, qty: f.liters, unitPrice: f.price, total: f.revenue })),
+        ...b.productLines.map(l => ({ name: `Armoire — ${l.name}`, qty: l.qty, unitPrice: l.price, total: l.total })),
+      ],
     })),
     ...shopSales.map(s => ({
       id: s.id, ref: s.id?.slice(0, 8) || '—', kind: 'Magasin', date: s.date, client: clients.find(c => c.id === s.clientId)?.name || 'Comptoir',
@@ -1096,7 +1106,7 @@ export function computeCarburantReport(app: any, from: string, to: string): Part
   // Le chiffre d'affaires du carburant est celui des brigades ; l'encaissé, ce
   // qui en est réellement rentré (espèces + TPE) — un bon client n'est pas encore
   // de l'argent.
-  const salesTotal = fuel.revenue + shopSales.reduce((s, x) => s + (x.total || 0), 0);
+  const salesTotal = fuel.revenue + fuel.productSales + shopSales.reduce((s, x) => s + (x.total || 0), 0);
   const salesPaid = fuel.collected + shopSales.reduce((s, x) => s + (x.amountPaid ?? x.total ?? 0), 0);
   const purchasesTotal = purchasesInRange.reduce((s: number, x: any) => s + num(x.total), 0);
   const purchasesPaid = purchasesInRange.reduce((s: number, x: any) => s + purchasePaid(x), 0);

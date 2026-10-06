@@ -15,7 +15,7 @@
  * so the general report can never disagree with them.
  * ──────────────────────────────────────────────────────────────────────────────
  */
-import { BizState, ModuleKey, MODULES, netCashOfSale, bizExpensePaidInCash } from './bizConfig';
+import { BizState, ModuleKey, MODULES, netCashOfSale, bizExpensePaidInCash, isMagasin2Enabled } from './bizConfig';
 import { within } from './period';
 import { computeCarburantCash } from './carburantSales';
 import { moduleCaisseBalance, docPaymentSlices } from './bizReporting';
@@ -34,6 +34,7 @@ export const CAISSE_PART_ID = {
   restaurant: 'CAISSE_RESTAURANT',
   cafeteria: 'CAISSE_CAFETERIA',
   lavage: 'CAISSE_LAVAGE',
+  magasin2: 'CAISSE_MAGASIN2',
 } as const;
 
 export const CASH_ACCOUNT_IDS: string[] = [CAISSE_ID, ...Object.values(CAISSE_PART_ID)];
@@ -43,12 +44,13 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   [CAISSE_PART_ID.carburant]: 'Caisse Carburant',
   [CAISSE_PART_ID.restaurant]: 'Caisse Restaurant',
   [CAISSE_PART_ID.cafeteria]: 'Caisse Cafétéria',
-  [CAISSE_PART_ID.lavage]: 'Caisse Magasin',
+  get [CAISSE_PART_ID.lavage]() { return `Caisse ${MODULES.lavage.label}`; },
+  get [CAISSE_PART_ID.magasin2]() { return `Caisse ${MODULES.magasin2.label}`; },
 };
 
 const isCashAccount = (id?: string): boolean => !!id && CASH_ACCOUNT_IDS.includes(id);
 
-export type TreasuryPartKey = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'systeme';
+export type TreasuryPartKey = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'systeme';
 
 /**
  * À QUI appartient l'argent DÉJÀ sur un compte bancaire le jour de sa création.
@@ -81,8 +83,16 @@ export const ORIGIN_LABEL: Record<string, string> = {
 };
 
 export const TREASURY_PART_LABEL: Record<TreasuryPartKey, string> = {
-  carburant: 'Carburant', restaurant: 'Restaurant', cafeteria: 'Cafétéria', lavage: 'Magasin', systeme: 'Finance',
+  carburant: 'Carburant', restaurant: 'Restaurant', cafeteria: 'Cafétéria',
+  // Noms choisis dans Paramètres → Magasins, lus à la volée.
+  get lavage() { return MODULES.lavage.label; },
+  get magasin2() { return MODULES.magasin2.label; },
+  systeme: 'Finance',
 };
+
+/** Les activités réellement utilisées : le second magasin n'y figure qu'une fois créé. */
+export const activeTreasuryParts = (): TreasuryPartKey[] =>
+  (Object.keys(TREASURY_PART_LABEL) as TreasuryPartKey[]).filter(k => k !== 'magasin2' || isMagasin2Enabled());
 
 // ─── Rows ────────────────────────────────────────────────────────────────────
 export interface TreasuryMovement {
@@ -640,6 +650,9 @@ export function computeTreasuryReport(app: any, biz: BizState, from: string, to:
     { key: 'restaurant', label: TREASURY_PART_LABEL.restaurant, balance: partBalance('restaurant'), ...flowsOf('restaurant') },
     { key: 'cafeteria', label: TREASURY_PART_LABEL.cafeteria, balance: partBalance('cafeteria'), ...flowsOf('cafeteria') },
     { key: 'lavage', label: TREASURY_PART_LABEL.lavage, balance: partBalance('lavage'), ...flowsOf('lavage') },
+    ...(isMagasin2Enabled()
+      ? [{ key: 'magasin2' as TreasuryPartKey, label: TREASURY_PART_LABEL.magasin2, balance: partBalance('magasin2'), ...flowsOf('magasin2') }]
+      : []),
     { key: 'systeme', label: TREASURY_PART_LABEL.systeme, balance: caisseBalance + bankTotal, ...flowsOf('systeme') },
   ];
 
@@ -655,7 +668,7 @@ export function computeTreasuryReport(app: any, biz: BizState, from: string, to:
     .map(([nature, v]) => ({ nature, ...v, net: v.inflow - v.outflow }))
     .sort((a, b) => (b.inflow + b.outflow) - (a.inflow + a.outflow));
 
-  const byPart = (Object.keys(TREASURY_PART_LABEL) as TreasuryPartKey[]).map(part => {
+  const byPart = activeTreasuryParts().map(part => {
     const f = flowsOf(part);
     return { part, label: TREASURY_PART_LABEL[part], inflow: f.inflow, outflow: f.outflow, net: f.inflow - f.outflow };
   });

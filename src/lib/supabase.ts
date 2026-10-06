@@ -326,7 +326,7 @@ export async function provisionWorkerAccount(input: {
 // These employees live in the BizContext store, so they need their own auth
 // provisioning path (see supabase/migrations/module_workers_auth.sql).
 
-export type BizModuleKey = 'restaurant' | 'cafeteria' | 'lavage';
+export type BizModuleKey = 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
 
 export interface ModuleWorkerRow {
   id: string;
@@ -598,7 +598,7 @@ async function writeTolerant<T>(
   write: (payload: object) => Promise<T>,
 ): Promise<T> {
   let payload: any = row;
-  for (let attempt = 0; attempt < 4; attempt++) {
+  for (let attempt = 0; attempt < 10; attempt++) {
     try {
       return await write(payload);
     } catch (err) {
@@ -740,6 +740,9 @@ export async function dbSelect<T>(
   return rows as T[];
 }
 
+/** Mémorise que les tables des armoires répondent (voir `db.armoireTablesReady`). */
+let armoireTablesOk = false;
+
 // ─── Specific data loaders (same shape/signatures as before) ────────────────────
 export const db = {
   // Settings
@@ -751,12 +754,20 @@ export const db = {
     // Keep a single settings row (fixed id) so upserts merge instead of duplicating.
     const existing = await supabase.from('station_settings').select('id').limit(1).maybeSingle();
     const id = (existing.data as any)?.id || 'settings-1';
-    const { data, error } = await supabase
-      .from('station_settings')
-      .upsert({ id, ...settings })
-      .select()
-      .maybeSingle();
-    return { data, error };
+    // Une colonne encore absente (migration en retard — ex. les noms des
+    // magasins) ne doit pas faire perdre TOUT l'enregistrement des réglages :
+    // on retente sans elle, jusqu'à six fois.
+    let payload: Record<string, unknown> = { id, ...settings };
+    let res = await supabase.from('station_settings').upsert(payload).select().maybeSingle();
+    for (let i = 0; i < 6 && res.error; i++) {
+      const col = missingColumnName(res.error);
+      if (!col || !(col in payload)) break;
+      const { [col]: _dropped, ...rest } = payload;
+      payload = rest;
+      console.warn(`[station_settings] colonne \`${col}\` absente — exécutez la migration SQL des magasins.`);
+      res = await supabase.from('station_settings').upsert(payload).select().maybeSingle();
+    }
+    return { data: res.data, error: res.error };
   },
 
   // Tanks
@@ -770,6 +781,72 @@ export const db = {
   addTrack:    (t: object) => dbInsert('tracks', t),
   updateTrack: (id: string, t: object) => dbUpdate('tracks', id, t),
   deleteTrack: (id: string) => dbDelete('tracks', id),
+
+  // ── Armoires (rangements de produits par piste) ──────────────────────────
+  // Le produit rangé vient d'un MAGASIN (premier ou second) : `module_key`
+  // dit lequel. Une armoire absente de la base (migration non passée) ne doit
+  // jamais bloquer l'application : les lectures rendent alors une liste vide.
+  getArmoires:      () => dbSelectAll<any>('armoires'),
+  addArmoire:       (a: object) => dbInsert('armoires', a),
+  updateArmoire:    (id: string, a: object) => dbUpdate('armoires', id, a),
+  deleteArmoire:    (id: string) => dbDelete('armoires', id),
+  getArmoireStock:  () => dbSelectAll<any>('armoire_stock'),
+  /**
+   * Ajustement ATOMIQUE du stock d'une armoire (RPC `adjust_armoire_stock`).
+   * `delta` = variation du nombre TOTAL d'unités, `emptyDelta` = variation des
+   * contenants VIDES (produits consignés). Les valeurs peuvent devenir
+   * négatives : la vente en stock négatif est autorisée.
+   */
+  adjustArmoireStock: async (armoireId: string, productId: string, delta: number, emptyDelta = 0, moduleKey?: string) => {
+    if (!armoireId || !productId || (!delta && !emptyDelta)) return;
+    const { error } = await supabase.rpc('adjust_armoire_stock', {
+      p_armoire_id: armoireId, p_product_id: productId,
+      p_delta: delta || 0, p_empty_delta: emptyDelta || 0, p_module_key: moduleKey ?? null,
+    });
+    if (error) throw new Error(`RPC adjust_armoire_stock: ${error.message}`);
+  },
+
+  /**
+   * Les tables des armoires existent-elles ? Un transfert déplace AUSSI le
+   * stock du magasin : sans cette vérification, une base où la migration n'a
+   * pas été passée verrait le magasin baisser sans que l'armoire monte.
+   */
+  armoireTablesReady: async (): Promise<boolean> => {
+    if (armoireTablesOk) return true;
+    const { error } = await supabase.from('stock_transfers').select('id').limit(1);
+    armoireTablesOk = !error;
+    return armoireTablesOk;
+  },
+
+  // ── Transferts Magasin → Armoire ─────────────────────────────────────────
+  getStockTransfers:      () => dbSelectAll<any>('stock_transfers'),
+  getStockTransferItems:  () => dbSelectAll<any>('stock_transfer_items'),
+  addStockTransfer:       (t: object) => dbInsert('stock_transfers', t),
+  updateStockTransfer:    (id: string, t: object) => dbUpdate('stock_transfers', id, t),
+  deleteStockTransfer:    (id: string) => dbDelete('stock_transfers', id),
+  addStockTransferItems: async (rows: object[]) => {
+    if (!rows.length) return;
+    const { error } = await supabase.from('stock_transfer_items').insert(rows);
+    if (error) throw new Error(`[insert stock_transfer_items] ${error.message}`);
+  },
+  deleteStockTransferItems: async (transferId: string) => {
+    const { error } = await supabase.from('stock_transfer_items').delete().eq('transfer_id', transferId);
+    if (error) throw new Error(`[delete stock_transfer_items] ${error.message}`);
+  },
+
+  // ── Ventes / achats de produits en armoire pendant une brigade ───────────
+  getArmoireSales:     () => dbSelectAll<any>('armoire_sales'),
+  getArmoirePurchases: () => dbSelectAll<any>('armoire_purchases'),
+  addArmoireSales: async (rows: object[]) => {
+    if (!rows.length) return;
+    const { error } = await supabase.from('armoire_sales').insert(rows);
+    if (error) throw new Error(`[insert armoire_sales] ${error.message}`);
+  },
+  addArmoirePurchases: async (rows: object[]) => {
+    if (!rows.length) return;
+    const { error } = await supabase.from('armoire_purchases').insert(rows);
+    if (error) throw new Error(`[insert armoire_purchases] ${error.message}`);
+  },
 
   // Pumps
   getPumps:   () => dbSelect('pumps'),
@@ -863,8 +940,11 @@ export const db = {
 
   // Brigades
   getBrigades:   () => dbSelectAll('brigades'),
-  addBrigade:    (b: object) => dbInsert('brigades', b),
-  updateBrigade: (id: string, b: object) => dbUpdate('brigades', id, b),
+  // Tolérantes : une colonne récente (ex. les ventes / achats d'armoire) absente
+  // de la base ne doit pas faire perdre la brigade — seule la nouveauté attend
+  // sa migration.
+  addBrigade:    (b: object) => writeTolerant('brigades', b, row => dbInsert('brigades', row)),
+  updateBrigade: (id: string, b: object) => writeTolerant('brigades', b, row => dbUpdate('brigades', id, row)),
   deleteBrigade: (id: string) => dbDelete('brigades', id),
 
   // Decalage history

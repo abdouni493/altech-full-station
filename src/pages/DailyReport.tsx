@@ -10,6 +10,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/src/lib/utils";
 import { useAppState, useAppDispatch, useModulePermission, isBrigadeExpense } from "../store/AppContext";
+import BrigadeArmoireMovements, { hasArmoireMoves } from "../components/armoires/BrigadeArmoireMovements";
 import { computeCarburantSales, derivedPumpStats, derivedTankSales } from "../lib/carburantSales";
 import { exportElementToPdf, printDocumentMode } from "../lib/pdf";
 import { brigadeNozzleRows, brigadePompisteGroups, justifiedByPompiste } from "../lib/brigadeCalc";
@@ -235,6 +236,8 @@ const DailyReport = () => {
       }));
 
       return {
+        // La brigade elle-même : ses mouvements d'armoire (ventes / achats / stock).
+        brigade: b,
         id: b.id, date: b.date, shift: b.shift, chefName: chef?.name ?? '—',
         status: b.status, startTime: b.startTime, endTime: b.endTime,
         totalLiters, totalRevenue,
@@ -337,7 +340,7 @@ const DailyReport = () => {
     const brigadeCash = brigadeDetails.reduce((s: number, b: any) => s + (b.accounting?.cashReceived || 0), 0);
 
     /* B. Justifications totals (TPE / TAG / crédit / avance client / dépenses) */
-    const justifByType = { TPE: 0, TAG: 0, CREDIT: 0, AVANCE: 0, EXPENSE: 0 };
+    const justifByType = { TPE: 0, TAG: 0, CREDIT: 0, AVANCE: 0, EXPENSE: 0, ACHAT_PRODUIT: 0 };
     const tagsByAmount: Record<string, number> = {};
     (brigadeAccountings || []).forEach(acc => {
       if (!periodBrigadeIds.has(acc.brigadeId)) return;
@@ -349,6 +352,9 @@ const DailyReport = () => {
           tagsByAmount[key] = (tagsByAmount[key] || 0) + 1;
         } else if (j.justificationType === 'EXPENSE') {
           justifByType.EXPENSE += j.amount || 0;
+        } else if (j.justificationType === 'ACHAT_PRODUIT') {
+          // Marchandise achetée sur la caisse et rangée en armoire.
+          justifByType.ACHAT_PRODUIT += j.amount || 0;
         } else if (j.justificationType === 'CLIENT' || !j.justificationType) {
           if (j.paymentMode === 'AVANCE') justifByType.AVANCE += j.amount || 0;
           else justifByType.CREDIT += j.amount || 0;
@@ -1148,12 +1154,16 @@ const DailyReport = () => {
                               {b.accounting.justifications.map((j: any) => (
                                 <tr key={j.id} className="border-b border-slate-100">
                                   <td className="px-3 py-1.5 font-black border border-slate-200">
-                                    {j.justificationType === 'TAG' ? '🏷️ Tag' : j.justificationType === 'TPE' ? '💳 TPE' : j.justificationType === 'EXPENSE' ? '🧾 Dépense' : j.paymentMode === 'AVANCE' ? '🟢 Avance' : '🟠 Crédit'}
+                                    {j.justificationType === 'TAG' ? '🏷️ Tag' : j.justificationType === 'TPE' ? '💳 TPE' : j.justificationType === 'EXPENSE' ? '🧾 Dépense' : j.justificationType === 'ACHAT_PRODUIT' ? '📦 Achat produit' : j.paymentMode === 'AVANCE' ? '🟢 Avance' : '🟠 Crédit'}
                                   </td>
                                   <td className="px-3 py-1.5 border border-slate-200">
                                     {j.justificationType === 'EXPENSE'
                                       ? [j.clientName, j.expenseCategory, j.notes].filter(Boolean).join(' — ') || '—'
-                                      : (j.notes || j.clientName || '—')}
+                                      : j.justificationType === 'ACHAT_PRODUIT'
+                                        ? [`${j.productName || 'Produit'} × ${(j.quantity || 0).toLocaleString('fr-FR')}`,
+                                           j.consigneMode === 'REMPLISSAGE' ? 'remplissage' : j.consigneMode === 'VIDE' ? 'bouteilles vides' : '',
+                                           j.supplierName].filter(Boolean).join(' — ')
+                                        : (j.notes || j.clientName || '—')}
                                   </td>
                                   <td className="px-3 py-1.5 tabular-nums border border-slate-200">{(j.liters || 0).toFixed(2)}</td>
                                   <td className="px-3 py-1.5 font-black text-slate-700 border border-slate-200">{(j.amount || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} DA</td>
@@ -1163,6 +1173,11 @@ const DailyReport = () => {
                           </table>
                         </div>
                       </div>
+                    )}
+
+                    {/* Produits — Armoires : ventes, achats et stock (bouteilles comprises) */}
+                    {hasArmoireMoves(b.brigade) && (
+                      <BrigadeArmoireMovements brigade={b.brigade} pompistes={pompistes} armoires={app.armoires || []} />
                     )}
 
                     {/* Brigade total row */}
@@ -1395,6 +1410,7 @@ const DailyReport = () => {
           { label: 'Crédit client', value: f.justifByType.CREDIT, color: '#ea580c' },
           { label: 'Avance client', value: f.justifByType.AVANCE, color: '#0d9488' },
           { label: 'Dépenses brigade', value: f.justifByType.EXPENSE, color: '#047857' },
+          { label: 'Achats produits (armoire)', value: f.justifByType.ACHAT_PRODUIT || 0, color: '#4338ca' },
         ].filter(j => Math.abs(j.value) > 0.001);
         const venteTotale = f.fuelTotals.selling + f.shopTotals.selling;
         const beneficeNet = f.fuelTotals.gain + f.shopTotals.gain - f.allExpenseTotal;

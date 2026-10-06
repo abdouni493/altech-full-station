@@ -31,7 +31,7 @@
  * ──────────────────────────────────────────────────────────────────────────────
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { BizState, ModuleKey, ModuleState, BizCollection, BizSession, BizProduct } from '../lib/bizConfig';
+import { BizState, ModuleKey, ModuleState, BizCollection, BizSession, BizProduct, MODULE_KEYS, isModuleKey } from '../lib/bizConfig';
 import { emptyBizState, EMPTY_MODULE } from '../lib/bizSeed';
 import { loadBizStoreSnapshot, peekBizStoreRev, saveBizStore, subscribeTable, BizStoreSnapshot } from '../lib/supabase';
 import { loadBizSessions } from '../lib/bizSessions';
@@ -171,7 +171,7 @@ function reducer(state: BizState, action: Action): BizState {
     case 'SET_SESSIONS': {
       const next = { ...state } as BizState;
       let changed = false;
-      (['restaurant', 'cafeteria', 'lavage'] as ModuleKey[]).forEach(key => {
+      MODULE_KEYS.forEach(key => {
         const remote = action.sessions[key] || [];
         const known = new Set(remote.map(s => s.id));
         const localOnly = (state[key]?.sessions || []).filter(s => !known.has(s.id));
@@ -198,7 +198,7 @@ function sessionsSignature(list: BizSession[]): string {
 }
 
 function isValidState(v: any): v is BizState {
-  return !!v && !!v.restaurant && !!v.cafeteria && !!v.lavage;
+  return !!v && MODULE_KEYS.every(k => !!v[k]);
 }
 
 /** Collections merged from a removed part into a surviving one. */
@@ -240,7 +240,7 @@ function migrate(raw: any): BizState | null {
   };
   fold('magasin', 'lavage');
 
-  for (const key of ['restaurant', 'cafeteria', 'lavage'] as ModuleKey[]) {
+  for (const key of MODULE_KEYS) {
     const mod = state[key] || EMPTY_MODULE();
     // Guarantee every collection of the current ModuleState exists.
     const base: any = EMPTY_MODULE();
@@ -294,15 +294,16 @@ function migrate(raw: any): BizState | null {
     // they keep showing up on both kinds of prestation.
     mod.workers = (mod.workers as any[]).map(w => ({
       ...w,
-      workerKind: w.workerKind || (key === 'lavage' ? 'both' : undefined),
+      workerKind: w.workerKind || (key === 'lavage' || key === 'magasin2' ? 'both' : undefined),
     }));
     delete mod.services;
     state[key] = mod;
   }
 
-  // Drop any other unknown top-level part so the store stays exactly three parts.
+  // Drop any other unknown top-level part so the store keeps only known parts
+  // (Restaurant, Cafétéria, Magasin et second Magasin).
   for (const k of Object.keys(state)) {
-    if (k !== 'restaurant' && k !== 'cafeteria' && k !== 'lavage') delete state[k];
+    if (!isModuleKey(k)) delete state[k];
   }
   return isValidState(state) ? (state as BizState) : null;
 }
@@ -800,10 +801,10 @@ export function BizProvider({ children }: { children: React.ReactNode }) {
       const row = payload.new as { id?: string; module_key?: string; data?: BizProduct } | null;
       if (!hydratedRef.current || !row?.id || !row?.data) return;
       const key = row.module_key as ModuleKey;
-      if (key !== 'restaurant' && key !== 'cafeteria' && key !== 'lavage') return;
-      applyRemoteCatalogue({
-        restaurant: [], cafeteria: [], lavage: [], [key]: [{ ...row.data, id: row.id }],
-      } as Record<ModuleKey, BizProduct[]>);
+      if (!isModuleKey(key)) return;
+      const remote = Object.fromEntries(MODULE_KEYS.map(k => [k, [] as BizProduct[]])) as Record<ModuleKey, BizProduct[]>;
+      remote[key] = [{ ...row.data, id: row.id }];
+      applyRemoteCatalogue(remote);
     };
     const unsub = subscribeTable('biz_products', onRow);
     // Filet quand le websocket est bloqué (réseau d'entreprise) : au retour sur

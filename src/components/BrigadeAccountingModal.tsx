@@ -25,7 +25,15 @@ interface Justification {
   id: string;
   clientId: string;
   amount: number;
-  justificationType: 'CLIENT' | 'TAG' | 'TPE' | 'EXPENSE';
+  justificationType: 'CLIENT' | 'TAG' | 'TPE' | 'EXPENSE' | 'ACHAT_PRODUIT';
+  /**
+   * Justificatif ACHAT_PRODUIT (marchandise achetée sur la caisse et rangée en
+   * armoire) : il se saisit dans l'assistant de la brigade, qui déplace aussi
+   * le stock de l'armoire. Cette fenêtre le CONSERVE tel quel — sans ces champs,
+   * un réenregistrement le viderait de son produit et de son armoire.
+   */
+  product?: Pick<BrigadeAccountingJustification,
+    'productId' | 'productName' | 'moduleKey' | 'armoireId' | 'quantity' | 'unitPrice' | 'supplierName' | 'consigneMode'>;
   /** Description libre d'une dépense (justifie le reste sans client). */
   notes?: string;
   /** La catégorie d'une dépense — celle de l'écran Dépenses, facultative. */
@@ -130,6 +138,11 @@ const BrigadeAccountingModal: React.FC<Props> = ({
       clientName: j.clientName, notes: j.notes, expenseCategory: j.expenseCategory,
       fuelType: j.fuelType, liters: j.liters,
       pricePerLiter: j.pricePerLiter, trackId: j.trackId, pompisteId: j.pompisteId,
+      product: j.justificationType === 'ACHAT_PRODUIT' ? {
+        productId: j.productId, productName: j.productName, moduleKey: j.moduleKey,
+        armoireId: j.armoireId, quantity: j.quantity, unitPrice: j.unitPrice,
+        supplierName: j.supplierName, consigneMode: j.consigneMode,
+      } : undefined,
     }))
   );
   // Mode de justification du reste : dépense de brigade, bon/tag ou TPE.
@@ -290,8 +303,15 @@ const BrigadeAccountingModal: React.FC<Props> = ({
   }, [tankComparison, pompisteGroups, settings]);
 
   const totalRevenue = nozzleData.reduce((s, d) => s + d.revenue, 0);
+  /**
+   * Produits vendus depuis les ARMOIRES pendant la brigade : les pompistes en
+   * rendent aussi l'argent. Ils s'ajoutent au dû — sans quoi une simple
+   * réouverture de cette fenêtre transformait leur montant en faux excédent.
+   */
+  const armoireSalesTotal = (brigade.armoireSales || []).reduce((s, x) => s + (Number(x.total) || 0), 0);
+  const totalDue = totalRevenue + armoireSalesTotal;
   const justifiedTotal = justifications.reduce((s, j) => s + j.amount, 0);
-  const reste = totalRevenue - cashReceived - justifiedTotal;
+  const reste = totalDue - cashReceived - justifiedTotal;
 
   // ── Step 1 helpers ───────────────────────────────────────────────────────────
   const allCuvesVerified = tankComparison.length === 0 || tankComparison.every(t => cuveVer[t.tank.id]?.verified);
@@ -369,6 +389,7 @@ const BrigadeAccountingModal: React.FC<Props> = ({
         clientName: j.clientName, expenseCategory: j.expenseCategory,
         fuelType: j.fuelType, liters: j.liters,
         pricePerLiter: j.pricePerLiter, trackId: j.trackId, pompisteId: j.pompisteId,
+        ...(j.product || {}),
       };
     });
 
@@ -385,7 +406,7 @@ const BrigadeAccountingModal: React.FC<Props> = ({
     const accounting: BrigadeAccounting = {
       id: existingAccounting?.id || newId(),
       brigadeId: brigade.id,
-      totalDue: totalRevenue,
+      totalDue,
       cashReceived,
       rest: reste,
       tankSummary: tankComparison.map(t => ({ tankId: t.tank.id, startL: t.startL, endL: t.endL, diff: t.diff, ecart: t.ecart, ecartMoney: t.ecartMoney })),
@@ -890,8 +911,13 @@ const BrigadeAccountingModal: React.FC<Props> = ({
                 {/* Total due banner */}
                 <div className="p-6 bg-gradient-to-r from-blue-900 via-blue-800 to-blue-900 rounded-2xl text-center">
                   <p className="text-[10px] font-black text-blue-200 uppercase tracking-widest mb-2">Montant Total Dû</p>
-                  <p className="text-4xl font-black text-yellow-400">{totalRevenue.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xl">DA</span></p>
+                  <p className="text-4xl font-black text-yellow-400">{totalDue.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} <span className="text-xl">DA</span></p>
                   <p className="text-[11px] text-blue-300 mt-2">{nozzleData.reduce((s, d) => s + d.liters, 0).toFixed(2)} L vendus</p>
+                  {armoireSalesTotal > 0 && (
+                    <p className="text-[11px] text-emerald-300 mt-1">
+                      dont produits vendus depuis les armoires : {armoireSalesTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} DA
+                    </p>
+                  )}
                 </div>
 
                 {/* ─── Detailed breakdown: Pompiste → Pompes → Pistolets ─── */}
@@ -1250,6 +1276,28 @@ const BrigadeAccountingModal: React.FC<Props> = ({
                     const client = clients.find(c => c.id === j.clientId);
                     const isTPE = j.justificationType === 'TPE' || j.justificationType === 'TAG';
                     const isExpense = j.justificationType === 'EXPENSE';
+                    const isProduct = j.justificationType === 'ACHAT_PRODUIT';
+                    if (isProduct) {
+                      // Achat produit → armoire : en lecture seule ici, il se modifie
+                      // depuis la brigade (qui déplace aussi le stock de l'armoire).
+                      return (
+                        <div key={j.id} className="flex items-center gap-3 p-3 rounded-xl border bg-indigo-50 border-indigo-200">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0 bg-indigo-100">📦</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-black text-slate-800 text-sm truncate">
+                              {j.product?.productName || 'Produit'} × {(j.product?.quantity || 0).toLocaleString('fr-FR')}
+                              {j.product?.consigneMode && (
+                                <span className="ml-2 text-[9px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase">
+                                  {j.product.consigneMode === 'REMPLISSAGE' ? 'Remplissage' : 'Bouteilles vides'}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[10px] text-slate-400">Achat produit → armoire{j.product?.supplierName ? ` · ${j.product.supplierName}` : ''} — modifiable depuis la brigade</p>
+                          </div>
+                          <p className="font-black text-indigo-700">{j.amount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} DA</p>
+                        </div>
+                      );
+                    }
                     return (
                       <div key={j.id} className={cn(
                         "flex items-center gap-3 p-3 rounded-xl border",

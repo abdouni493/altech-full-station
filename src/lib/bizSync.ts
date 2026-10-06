@@ -27,14 +27,14 @@
  *  course entre deux postes ou entre le local et le serveur.
  * ──────────────────────────────────────────────────────────────────────────────
  */
-import { BizState, ModuleKey, ModuleState, BizCollection } from './bizConfig';
+import { BizState, ModuleKey, ModuleState, BizCollection, MODULE_KEYS } from './bizConfig';
 import { EMPTY_MODULE } from './bizSeed';
 
 /** Champ posé sur chaque ligne écrite localement : quand elle a été touchée. */
 export const STAMP = '_upd';
 
-/** Parties réellement présentes dans l'état courant. */
-export const MODULE_KEYS: ModuleKey[] = ['restaurant', 'cafeteria', 'lavage'];
+/** Parties réellement présentes dans l'état courant (second magasin compris). */
+export { MODULE_KEYS };
 
 /** Collections fusionnées ligne par ligne (toutes portent un `id`). */
 export const MERGE_COLLECTIONS: BizCollection[] = [

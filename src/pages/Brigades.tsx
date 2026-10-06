@@ -36,10 +36,15 @@ import {
   Search
 ,
   Wrench as WrenchIcon,
+  Package,
+  Archive,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn, newId, matchesSearch } from "@/src/lib/utils";
-import { useAppState, useAppDispatch, useModulePermission, Brigade, Pump, Tank, Pompiste, Client, BrigadeDecalageAlert, BrigadeAccounting, BrigadeAccountingJustification, nozzleTankId, pumpTankIds, pumpsInCreationOrder, nozzlesInCreationOrder, CAISSE_ID } from "../store/AppContext";
+import { useAppState, useAppDispatch, useModulePermission, Brigade, Pump, Tank, Pompiste, Client, BrigadeDecalageAlert, BrigadeAccounting, BrigadeAccountingJustification, nozzleTankId, pumpTankIds, pumpsInCreationOrder, nozzlesInCreationOrder, CAISSE_ID, ConsigneMode, MagasinKey, BrigadeArmoireStockLine, armoireSaleStockLine, armoirePurchaseStockLine } from "../store/AppContext";
+import { useBizAll } from "../store/BizContext";
+import { BizProduct, detailPrice, roundQty, activeMagasinKeys } from "../lib/bizConfig";
+import { magasinProducts, findMagasinProduct, searchMagasinProducts, armoiresOfPompiste, magasinLabel } from "../lib/armoires";
 import { useNavigate } from "react-router-dom";
 import { brigadeTankConsumption, brigadeTankDeltas, brigadeLiters } from "../lib/brigadeTanks";
 import { ownsNozzleIndex } from "../lib/nozzleIndexes";
@@ -96,7 +101,7 @@ interface WizardJustification {
    * et devient une vraie ligne de l'écran Dépenses (`lib/brigadeExpenses.ts`).
    * Elle a remplacé l'avance client, que le gérant ne saisissait plus ici.
    */
-  type: 'TAG' | 'TPE' | 'CLIENT_CREDIT' | 'CLIENT_AVANCE' | 'EXPENSE';
+  type: 'TAG' | 'TPE' | 'CLIENT_CREDIT' | 'CLIENT_AVANCE' | 'EXPENSE' | 'ACHAT_PRODUIT';
   id: string;
   /** Pour un TAG / TPE : le compte bancaire crédité à l'enregistrement. */
   bankAccountId?: string;
@@ -111,7 +116,46 @@ interface WizardJustification {
   fuelType?: string;    // carburant choisi pour le calcul par litres
   clientId?: string;
   clientName?: string;
+  // ── Justificatif ACHAT_PRODUIT ───────────────────────────────────────────
+  // Le fournisseur est passé vendre la marchandise directement au pompiste : il
+  // l'a réglée sur la caisse de la brigade et rangée dans une armoire. Le
+  // montant justifie le décalage ET la quantité entre en stock d'armoire.
+  productId?: string;
+  productName?: string;
+  /** Magasin dont vient la fiche du produit. */
+  moduleKey?: MagasinKey;
+  armoireId?: string;
+  quantity?: number;
+  /** Prix d'achat unitaire — pré-rempli depuis la fiche produit, éditable. */
+  unitPrice?: number;
+  supplierName?: string;
+  /** Bouteilles de gaz : `REMPLISSAGE` (des vides de l'armoire redeviennent
+   *  pleines) ou `VIDE` (achat de bouteilles vides en plus). */
+  consigneMode?: ConsigneMode;
 }
+
+/**
+ * Ligne « vente de produit depuis l'armoire » saisie pendant la brigade.
+ * `quantity` est TOUJOURS en unités de stock (c'est elle qui décrémente
+ * l'armoire) ; `detailQty` n'existe que pour un produit vendu au détail.
+ */
+type ArmoireSaleLine = {
+  productId: string;
+  productName: string;
+  moduleKey?: MagasinKey;
+  armoireId: string;
+  quantity: number;
+  price: number;
+  detailQty?: number;
+  detailUnit?: string;
+  /** Coût de revient d'une unité (prix d'achat / de remplissage), figé à la vente. */
+  unitCost?: number;
+  /** Vente autorisée même si le stock de l'armoire devient négatif. */
+  allowNegative?: boolean;
+  /** Bouteille de gaz : la bouteille vendue reste dans l'armoire et passe de
+   *  PLEINE à VIDE — la disponibilité se lit sur les PLEINES. */
+  consigne?: boolean;
+};
 
 const Brigades = () => {
   const { t } = useTranslation();
@@ -120,6 +164,12 @@ const Brigades = () => {
   const { brigades, pumps, tanks, pompistes, brigadeChefs, settings, currentUserRole, currentUserId, currentUserName, workers, gerants, magasinWorkers, tracks, pumpNozzles = [], brigadeAccountings = [], shopSales = [], clients = [], bankAccounts = [], treasuryTransactions = [], expenses = [] } = appState;
   const perm = useModulePermission('Brigades');
   const dispatch = useAppDispatch();
+  const { armoires = [], armoireStock = [], stockTransfers = [] } = appState;
+  // Produits des magasins (le premier et le second) — ceux des armoires.
+  const biz = useBizAll();
+  const catalogue = useMemo(() => magasinProducts(biz), [biz, settings.magasin2Enabled]);
+  const productOf = (id?: string): BizProduct | undefined => findMagasinProduct(biz, id)?.product;
+  const moduleOfProduct = (id?: string): MagasinKey | undefined => findMagasinProduct(biz, id)?.moduleKey;
 
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -281,6 +331,158 @@ const Brigades = () => {
     useState<Record<string, { name: string; category: string; amount: string }>>({});
   const [showNewClientForm, setShowNewClientForm] = useState<string | null>(null);
   const [newClientDraft, setNewClientDraft] = useState({ name: '', phone: '', type: 'PARTICULIER' as Client['type'], paymentMode: 'CASH' as Client['paymentMode'] });
+
+  // ── Produits — Armoire : ventes & achats par pompiste (étape Comptabilité) ──
+  const [pompisteArmoireSales, setPompisteArmoireSales] = useState<Record<string, ArmoireSaleLine[]>>({});
+  const [armoireProductSearch, setArmoireProductSearch] = useState<Record<string, string>>({});
+  /** Onglet actif de la carte « Produits — Armoire » de chaque pompiste. */
+  const [productTab, setProductTab] = useState<Record<string, 'achat' | 'vente'>>({});
+  /** Recherche de l'onglet ACHAT, par pompiste. */
+  const [productPurchaseSearch, setProductPurchaseSearch] = useState<Record<string, string>>({});
+
+  /** Montant d'une ligne de vente : au détail = qté détaillée × prix du détail. */
+  const armoireLineTotal = (x: ArmoireSaleLine) => (x.detailQty ? x.detailQty * x.price : x.quantity * x.price);
+  /** Ventes produits (armoire) d'un pompiste — elles s'ajoutent à ce qu'il doit rendre. */
+  const armoireSaleTotal = (pid: string) => (pompisteArmoireSales[pid] || []).reduce((a, x) => a + armoireLineTotal(x), 0);
+  const armoireStockQty = (armoireId: string, productId: string) =>
+    (armoireStock.find(st => st.armoireId === armoireId && st.productId === productId)?.quantity ?? 0);
+  /** Bouteilles VIDES d'un produit consigné dans une armoire. */
+  const armoireEmptyQty = (armoireId: string, productId: string) =>
+    (armoireStock.find(st => st.armoireId === armoireId && st.productId === productId)?.emptyQuantity ?? 0);
+
+  // ── Stock AVANT la brigade éditée ───────────────────────────────────────────
+  // En ÉDITION, le stock courant de l'armoire porte DÉJÀ les ventes / achats de
+  // la brigade. On repart donc du stock tel qu'il était AVANT elle — sans quoi
+  // rouvrir une brigade qui a tout vendu bloquerait sur un faux « stock < vente ».
+  const editingAppliedDelta = useMemo(() => {
+    const m = new Map<string, { qty: number; empty: number }>();
+    if (!editingBrigade) return m;
+    const add = (armoireId?: string, productId?: string, qty = 0, empty = 0) => {
+      if (!armoireId || !productId) return;
+      const k = `${armoireId}|${productId}`;
+      const cur = m.get(k) || { qty: 0, empty: 0 };
+      m.set(k, { qty: cur.qty + qty, empty: cur.empty + empty });
+    };
+    (editingBrigade.armoireSales || []).forEach(x => {
+      const l = armoireSaleStockLine(x);
+      add(x.armoireId, x.productId, l.quantity, l.emptyQuantity || 0);
+    });
+    (editingBrigade.armoireProductPurchases || []).forEach(x => {
+      const l = armoirePurchaseStockLine(x);
+      add(x.armoireId, x.productId, l.quantity, l.emptyQuantity || 0);
+    });
+    return m;
+  }, [editingBrigade]);
+  const baseArmoireStockQty = (armoireId: string, productId: string) =>
+    armoireStockQty(armoireId, productId) - (editingAppliedDelta.get(`${armoireId}|${productId}`)?.qty || 0);
+  const baseArmoireEmptyQty = (armoireId: string, productId: string) =>
+    armoireEmptyQty(armoireId, productId) - (editingAppliedDelta.get(`${armoireId}|${productId}`)?.empty || 0);
+  const isConsigneProduct = (productId: string) => !!productOf(productId)?.consigneActive;
+
+  /** Toutes les lignes d'achat de produit saisies dans cette brigade. */
+  const wizardPurchaseLines = () =>
+    (Object.values(pompisteJustifications).flat() as WizardJustification[]).filter(j => j.type === 'ACHAT_PRODUIT');
+  /** Quantité ACHETÉE ici (hors remplissage) : elle se vend sur la même brigade. */
+  const wizardPurchasedQty = (armoireId: string, productId: string) =>
+    wizardPurchaseLines()
+      .filter(j => j.armoireId === armoireId && j.productId === productId && j.consigneMode !== 'REMPLISSAGE')
+      .reduce((a, j) => a + (j.quantity || 0), 0);
+  /** Bouteilles REMPLIES ici (vide → plein) : vendables sur la même brigade. */
+  const wizardFilledQty = (armoireId: string, productId: string) =>
+    wizardPurchaseLines()
+      .filter(j => j.armoireId === armoireId && j.productId === productId && j.consigneMode === 'REMPLISSAGE')
+      .reduce((a, j) => a + (j.quantity || 0), 0);
+  /** Bouteilles VIDES achetées ici (parc en plus, non vendables). */
+  const wizardEmptyPurchasedQty = (armoireId: string, productId: string) =>
+    wizardPurchaseLines()
+      .filter(j => j.armoireId === armoireId && j.productId === productId && j.consigneMode === 'VIDE')
+      .reduce((a, j) => a + (j.quantity || 0), 0);
+  /** Bouteilles VIDÉES par les ventes de cette brigade (plein → vide). */
+  const wizardSoldEmptyQty = (armoireId: string, productId: string) =>
+    (Object.values(pompisteArmoireSales).flat() as ArmoireSaleLine[])
+      .filter(x => x.consigne && x.armoireId === armoireId && x.productId === productId)
+      .reduce((a, x) => a + (x.quantity || 0), 0);
+  /**
+   * Ce qui est VENDABLE : bouteille de gaz → les PLEINES (total − vides) plus
+   * les remplissages saisis ici ; produit ordinaire → le stock plus les achats
+   * saisis ici.
+   */
+  const effectiveArmoireAvail = (armoireId: string, productId: string) => {
+    if (isConsigneProduct(productId)) {
+      const full = baseArmoireStockQty(armoireId, productId) - baseArmoireEmptyQty(armoireId, productId);
+      return full + wizardFilledQty(armoireId, productId);
+    }
+    return baseArmoireStockQty(armoireId, productId) + wizardPurchasedQty(armoireId, productId);
+  };
+  /** Bouteilles VIDES disponibles au remplissage. */
+  const effectiveArmoireEmptyAvail = (armoireId: string, productId: string) =>
+    baseArmoireEmptyQty(armoireId, productId)
+    + wizardSoldEmptyQty(armoireId, productId)
+    + wizardEmptyPurchasedQty(armoireId, productId)
+    - wizardFilledQty(armoireId, productId);
+
+  /** Ventes qui dépassent le stock sans achat préalable ni « vente en négatif ». */
+  const stockBlockedSales = useMemo(() => {
+    const blocked: Array<{ pompisteId: string; armoireId: string; productId: string }> = [];
+    (Object.entries(pompisteArmoireSales) as Array<[string, ArmoireSaleLine[]]>).forEach(([pid, list]) => {
+      (list || []).forEach(x => {
+        if ((x.quantity || 0) <= 0 || x.allowNegative) return;
+        if (x.quantity > effectiveArmoireAvail(x.armoireId, x.productId) + 1e-6) {
+          blocked.push({ pompisteId: pid, armoireId: x.armoireId, productId: x.productId });
+        }
+      });
+    });
+    return blocked;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pompisteArmoireSales, pompisteJustifications, armoireStock, biz, editingAppliedDelta]);
+  const hasStockBlock = stockBlockedSales.length > 0;
+
+  // ── Quantité INITIALE d'un produit d'armoire pour la brigade en cours ───────
+  // Ce que la brigade PRÉCÉDENTE a laissé, PLUS les transferts magasin →
+  // armoire intervenus depuis. Chaque brigade fige cette photo à sa création.
+  const previousBrigade = useMemo(() => {
+    const ts = (b: Brigade) => new Date(b.createdAt || b.endDatetime || b.endTimestamp || b.date).getTime();
+    return brigades
+      .filter(b => !editingBrigade || b.id !== editingBrigade.id)
+      .slice()
+      .sort((a, b) => ts(b) - ts(a))[0];
+  }, [brigades, editingBrigade]);
+  const transferredSincePrevious = (armoireId: string, productId: string) => {
+    const since = previousBrigade
+      ? new Date(previousBrigade.createdAt || previousBrigade.endDatetime || previousBrigade.endTimestamp || previousBrigade.date).getTime()
+      : null;
+    const items = stockTransfers
+      .filter(tr => tr.armoireId === armoireId && (since === null || new Date(tr.date).getTime() > since))
+      .flatMap(tr => tr.items || [])
+      .filter(it => it.productId === productId);
+    return {
+      total: items.reduce((a, it) => a + (it.quantity || 0), 0),
+      empty: items.reduce((a, it) => a + (it.consigneState === 'VIDE' ? (it.quantity || 0) : 0), 0),
+    };
+  };
+  const armoireInitialInfo = (armoireId: string, productId: string) => {
+    const current = baseArmoireStockQty(armoireId, productId);
+    const currentEmpty = baseArmoireEmptyQty(armoireId, productId);
+    const own = (editingBrigade?.armoireStockSnapshot || [])
+      .find(l => l.armoireId === armoireId && l.productId === productId);
+    if (own) {
+      return {
+        current, currentEmpty,
+        transferred: own.transferredQuantity ?? 0, previous: own.previousQuantity ?? 0, initial: own.quantity ?? 0,
+        transferredEmpty: own.transferredEmptyQuantity ?? 0, previousEmpty: own.previousEmptyQuantity ?? 0, initialEmpty: own.emptyQuantity ?? 0,
+      };
+    }
+    const tr = transferredSincePrevious(armoireId, productId);
+    const snap = (previousBrigade?.armoireStockSnapshot || [])
+      .find(l => l.armoireId === armoireId && l.productId === productId);
+    const previous = snap ? (snap.endQuantity ?? 0) : Math.max(0, current - tr.total);
+    const previousEmpty = snap ? (snap.endEmptyQuantity ?? 0) : Math.max(0, currentEmpty - tr.empty);
+    return {
+      current, currentEmpty,
+      transferred: tr.total, previous, initial: previous + tr.total,
+      transferredEmpty: tr.empty, previousEmpty, initialEmpty: previousEmpty + tr.empty,
+    };
+  };
 
   const activeBrigade = brigades.find(b => b.status === "Ouverte");
 
@@ -513,6 +715,21 @@ const Brigades = () => {
   }, [pompisteJustifications, bankAccounts, pompistes]);
 
   const handleStartBrigade = (forcedStatus?: 'Clôturée' | 'En attente') => {
+    // Produits — Armoire : une vente qui dépasse le stock doit être précédée
+    // d'un achat, ou autorisée explicitement en stock négatif.
+    if (hasStockBlock) {
+      dispatch({ type: 'ADD_TOAST', payload: { type: 'error', message:
+        "Une vente de produit dépasse le stock de l'armoire : faites d'abord l'achat ou autorisez la vente en stock négatif." } });
+      return;
+    }
+    // Un achat de produit doit dire dans quelle armoire la marchandise entre.
+    const purchaseWithoutArmoire = (Object.values(pompisteJustifications).flat() as WizardJustification[])
+      .find(j => j.type === 'ACHAT_PRODUIT' && (j.quantity || 0) > 0 && !j.armoireId);
+    if (purchaseWithoutArmoire) {
+      dispatch({ type: 'ADD_TOAST', payload: { type: 'error', message:
+        `Choisissez l'armoire de destination de l'achat « ${purchaseWithoutArmoire.productName || 'produit'} ».` } });
+      return;
+    }
     if (unbankedJustifs.length > 0) {
       const first = unbankedJustifs[0];
       dispatch({ type: 'ADD_TOAST', payload: { type: 'error', message:
@@ -577,6 +794,70 @@ const Brigades = () => {
 
       const brigadeId = isEdit ? editingBrigade!.id : newId();
 
+      // ── Produits — Armoire : ventes (débitées de l'armoire) ─────────────────
+      const armoireSalesPayload = (Object.entries(pompisteArmoireSales) as Array<[string, ArmoireSaleLine[]]>).flatMap(([pid, list]) =>
+        (list || []).filter(x => x.quantity > 0).map(x => ({
+          armoireId: x.armoireId, pompisteId: pid, productId: x.productId,
+          productName: x.productName, moduleKey: x.moduleKey || moduleOfProduct(x.productId),
+          quantity: x.quantity, price: x.price, total: armoireLineTotal(x),
+          unitCost: x.unitCost,
+          // Bouteille de gaz : elle reste dans l'armoire et passe de PLEINE à VIDE.
+          consigne: !!x.consigne,
+        })));
+
+      // ── Produits — Armoire : achats réglés sur la caisse (justificatifs) ────
+      const armoirePurchasesPayload = (Object.entries(pompisteJustifications) as Array<[string, WizardJustification[]]>)
+        .flatMap(([pid, list]) => (list || [])
+          .filter(j => j.type === 'ACHAT_PRODUIT' && j.productId && j.armoireId && (j.quantity || 0) > 0)
+          .map(j => ({
+            armoireId: j.armoireId!, pompisteId: pid, productId: j.productId!,
+            productName: j.productName || '', moduleKey: j.moduleKey || moduleOfProduct(j.productId),
+            quantity: j.quantity || 0, unitPrice: j.unitPrice || 0,
+            total: (j.quantity || 0) * (j.unitPrice || 0),
+            supplierName: j.supplierName || undefined,
+            consigneMode: j.consigneMode,
+          })));
+
+      // Photo du stock de TOUTES les armoires : la « quantité initiale » de la
+      // brigade suivante.
+      const snapshotKeys = new Map<string, { armoireId: string; productId: string }>();
+      armoireStock.forEach(st => snapshotKeys.set(`${st.armoireId}|${st.productId}`, { armoireId: st.armoireId, productId: st.productId }));
+      [...armoireSalesPayload, ...armoirePurchasesPayload].forEach(x =>
+        snapshotKeys.set(`${x.armoireId}|${x.productId}`, { armoireId: x.armoireId, productId: x.productId }));
+      const armoireStockSnapshot: BrigadeArmoireStockLine[] = [...snapshotKeys.values()].map(({ armoireId, productId }) => {
+        const info = armoireInitialInfo(armoireId, productId);
+        const consigne = isConsigneProduct(productId);
+        const lineSales = armoireSalesPayload.filter(x => x.armoireId === armoireId && x.productId === productId);
+        const linePurchases = armoirePurchasesPayload.filter(x => x.armoireId === armoireId && x.productId === productId);
+        const sold = lineSales.reduce((a, x) => a + x.quantity, 0);
+        const purchased = linePurchases.reduce((a, x) => a + x.quantity, 0);
+        // Bouteille : une vente ne SORT pas la bouteille (elle se vide) et un
+        // remplissage n'en FAIT pas entrer (il la remplit).
+        const soldEmpty = lineSales.reduce((a, x) => a + (x.consigne ? x.quantity : 0), 0);
+        const filled = linePurchases.reduce((a, x) => a + (x.consigneMode === 'REMPLISSAGE' ? x.quantity : 0), 0);
+        const purchasedEmpty = linePurchases.reduce((a, x) => a + (x.consigneMode === 'VIDE' ? x.quantity : 0), 0);
+        return {
+          armoireId,
+          armoireName: armoires.find(a => a.id === armoireId)?.name,
+          productId,
+          productName: productOf(productId)?.name || lineSales[0]?.productName || linePurchases[0]?.productName || '',
+          previousQuantity: info.previous,
+          transferredQuantity: info.transferred,
+          quantity: info.initial,
+          soldQuantity: sold,
+          purchasedQuantity: purchased,
+          endQuantity: info.initial - (sold - soldEmpty) + (purchased - filled),
+          consigne,
+          previousEmptyQuantity: info.previousEmpty,
+          transferredEmptyQuantity: info.transferredEmpty,
+          emptyQuantity: info.initialEmpty,
+          soldEmptyQuantity: soldEmpty,
+          filledQuantity: filled,
+          purchasedEmptyQuantity: purchasedEmpty,
+          endEmptyQuantity: info.initialEmpty + soldEmpty - filled + purchasedEmpty,
+        };
+      });
+
       // ── Comptabilité: per-pompiste data + justifications ──────────────────
       const pompisteData: NonNullable<Brigade['pompisteData']> = {};
       const decalageSummary: Record<string, any> = {};
@@ -594,14 +875,17 @@ const Brigades = () => {
         const cash = (typed || 0) + versed;
         const justifs = pompisteJustifications[s.pompisteId] || [];
         const justifTotal = justifs.reduce((sum, j) => sum + (j.amount || 0), 0);
-        const ecartRestant = s.theoretical - cash - justifTotal;
-        totalTheoretical += s.theoretical;
+        // Ce que le pompiste doit rendre = son carburant + les produits qu'il a
+        // vendus depuis l'armoire (bouteilles de gaz comprises).
+        const theo = s.theoretical + armoireSaleTotal(s.pompisteId);
+        const ecartRestant = theo - cash - justifTotal;
+        totalTheoretical += theo;
         totalCash += cash;
         totalJustif += justifTotal;
 
         pompisteData[s.pompisteId] = {
           litersSold: s.litersSold,
-          theoretical: s.theoretical,
+          theoretical: theo,
           collected: { cash, bons: 0, cheques: 0 },
           totalCollected: cash,
           decalage: -ecartRestant, // negative = shortfall
@@ -619,7 +903,22 @@ const Brigades = () => {
           const jFuel = j.fuelType || s.primaryFuel;
           const jPrice = j.byLiters ? (settings.fuelPrices[jFuel as any] || 0) : 0;
           const jLiters = j.byLiters ? (j.liters || 0) : 0;
-          if (j.type === 'TAG' || j.type === 'TPE') {
+          if (j.type === 'ACHAT_PRODUIT') {
+            // Marchandise achetée sur la caisse et rangée en armoire : elle
+            // justifie le décalage et porte le détail du produit.
+            accJustifications.push({
+              id: j.id, accountingId, clientId: '', amount: j.amount,
+              justificationType: 'ACHAT_PRODUIT',
+              clientName: j.supplierName || j.productName,
+              notes: j.description || undefined, liters: 0, pricePerLiter: 0,
+              trackId: s.trackId, pompisteId: s.pompisteId,
+              productId: j.productId, productName: j.productName,
+              moduleKey: j.moduleKey || moduleOfProduct(j.productId),
+              armoireId: j.armoireId, quantity: j.quantity || 0,
+              unitPrice: j.unitPrice || 0, supplierName: j.supplierName,
+              consigneMode: j.consigneMode,
+            });
+          } else if (j.type === 'TAG' || j.type === 'TPE') {
             // TAG comme TPE : l'argent est entré en BANQUE, sur le compte du
             // terminal choisi. Les lignes du grand livre sont écrites plus bas,
             // depuis ces justifications (voir `brigadeBankLines`), pour qu'une
@@ -703,6 +1002,10 @@ const Brigades = () => {
         pompisteData,
         canReactivate: false,
         notes: currentUserName ? `Créé par: ${currentUserName}` : (isEdit ? editingBrigade!.notes : undefined),
+        // Produits — Armoire : ventes, achats et photo du stock des armoires.
+        armoireSales: armoireSalesPayload,
+        armoireProductPurchases: armoirePurchasesPayload,
+        armoireStockSnapshot,
       };
       dispatch({ type: isEdit ? 'UPDATE_BRIGADE' : 'ADD_BRIGADE', payload: newBrigade });
 
@@ -776,11 +1079,14 @@ const Brigades = () => {
             const cash = (pompistePayments[s.pompisteId] || 0) + versed;
             const justifs = pompisteJustifications[s.pompisteId] || [];
             const justifTotal = justifs.reduce((sum, j) => sum + (j.amount || 0), 0);
+            const theo = s.theoretical + armoireSaleTotal(s.pompisteId);
             return [s.pompisteId, {
-              theoretical: s.theoretical,
+              theoretical: theo,
+              /** Dont produits vendus depuis l'armoire. */
+              productSales: armoireSaleTotal(s.pompisteId),
               cashReceived: cash,
               justifTotal,
-              ecart: s.theoretical - cash - justifTotal,
+              ecart: theo - cash - justifTotal,
               litersSold: s.litersSold,
               trackId: s.trackId,
               trackName: s.trackName,
@@ -958,9 +1264,12 @@ const Brigades = () => {
       // Le message dit ce que les cuves ont pris : c'est le seul endroit où le
       // stock bouge, l'utilisateur doit pouvoir le vérifier tout de suite.
       const litersOut = Object.values(usedByTank).reduce((s, n) => s + n, 0);
-      const cuveMsg = litersOut > 0
+      const cuveMsg = (litersOut > 0
         ? ` — ${litersOut.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} L retirés des cuves`
-        : '';
+        : '')
+        + (armoireSalesPayload.length || armoirePurchasesPayload.length
+          ? ` — armoires : ${armoireSalesPayload.length} vente(s), ${armoirePurchasesPayload.length} achat(s)`
+          : '');
       dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: (isEdit ? "Brigade mise à jour avec succès !" : "Brigade créée et clôturée avec succès !") + cuveMsg } });
       setShowModal(false);
       setEditingBrigade(null);
@@ -1039,6 +1348,7 @@ const Brigades = () => {
       const type = j.justificationType === 'TAG' ? 'TAG'
         : j.justificationType === 'TPE' ? 'TPE'
         : j.justificationType === 'EXPENSE' ? 'EXPENSE'
+        : j.justificationType === 'ACHAT_PRODUIT' ? 'ACHAT_PRODUIT'
         : (j.paymentMode === 'AVANCE' ? 'CLIENT_AVANCE' : 'CLIENT_CREDIT');
       const byLiters = (j.liters || 0) > 0;
       (justifMap[pid] = justifMap[pid] || []).push({
@@ -1066,9 +1376,40 @@ const Brigades = () => {
         fuelType: j.fuelType,
         clientId: j.clientId || undefined,
         clientName: j.clientName,
+        // Achat produit → armoire : produit, armoire, quantité, prix, consigne.
+        ...(type === 'ACHAT_PRODUIT' ? {
+          productId: j.productId, productName: j.productName, moduleKey: j.moduleKey,
+          armoireId: j.armoireId, quantity: j.quantity, unitPrice: j.unitPrice,
+          supplierName: j.supplierName, consigneMode: j.consigneMode,
+          description: j.notes || '',
+        } : {}),
       });
     });
     setPompisteJustifications(justifMap);
+
+    // Ventes produits (armoire), regroupées par pompiste.
+    const saleMap: Record<string, ArmoireSaleLine[]> = {};
+    (b.armoireSales || []).forEach(x => {
+      if (!x.pompisteId) return;
+      (saleMap[x.pompisteId] = saleMap[x.pompisteId] || []).push({
+        productId: x.productId, productName: x.productName, moduleKey: x.moduleKey,
+        armoireId: x.armoireId, quantity: x.quantity, price: x.price,
+        unitCost: x.unitCost, consigne: !!x.consigne,
+        // Une vente déjà enregistrée l'a été en connaissance de cause : on ne
+        // la rebloque pas sur un stock qui a bougé depuis.
+        allowNegative: true,
+      });
+    });
+    setPompisteArmoireSales(saleMap);
+    setArmoireProductSearch({});
+    setProductPurchaseSearch({});
+    // La carte s'ouvre sur l'onglet qui porte des lignes : les achats ne
+    // doivent pas rester cachés derrière l'onglet Vente.
+    const tabs: Record<string, 'achat' | 'vente'> = {};
+    Object.entries(justifMap).forEach(([pid, list]) => {
+      if (!saleMap[pid]?.length && list.some(j => j.type === 'ACHAT_PRODUIT')) tabs[pid] = 'achat';
+    });
+    setProductTab(tabs);
 
     setJustifClientSearch({});
     setExpenseDraft({});
@@ -1108,6 +1449,10 @@ const Brigades = () => {
     setExpenseDraft({});
     setShowNewClientForm(null);
     setNewClientDraft({ name: '', phone: '', type: 'PARTICULIER', paymentMode: 'CASH' });
+    setPompisteArmoireSales({});
+    setArmoireProductSearch({});
+    setProductPurchaseSearch({});
+    setProductTab({});
   };
 
   const handleSaveEditBrigade = () => {
@@ -1969,7 +2314,8 @@ const Brigades = () => {
                             step === 2 ? step2Valid :
                             step === 3 ? (!!startDate && !!endDate) :
                             step === 4 ? true :
-                            step === 5 ? !hasStep5Errors : true;
+                            step === 5 ? !hasStep5Errors :
+                            step === 6 ? !hasStockBlock : true;
 
           return (
             <div className="modal-shell z-[60]">
@@ -2535,6 +2881,15 @@ const Brigades = () => {
                   {/* STEP 6: Comptabilité */}
                   {step === 6 && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+                      {hasStockBlock && (
+                        <div className="p-3 rounded-xl border-2 border-red-300 bg-red-50 text-[11px] font-bold text-red-700 flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>
+                            Une ou plusieurs ventes de produits dépassent le stock de l'armoire. Faites d'abord l'achat (ou le
+                            remplissage) correspondant dans l'onglet « Achat », ou autorisez la vente en stock négatif pour continuer.
+                          </span>
+                        </div>
+                      )}
                       {/* SUB-SECTION A: Résumé des ventes par piste */}
                       <div className="space-y-2">
                         <h4 className="text-[10px] font-black text-[#002d87] uppercase tracking-widest">Résumé des ventes par piste</h4>
@@ -2579,9 +2934,96 @@ const Brigades = () => {
                           // vient d'apparaître finissait sous toutes les autres, et
                           // il fallait dérouler pour saisir son montant. L'ordre
                           // enregistré, lui, ne change pas.
-                          const justifsNewestFirst = [...justifs].reverse();
+                          // Les achats de produits ont leur propre carte (Produits — Armoire) :
+                          // ils comptent dans le justifié mais pas dans cette liste.
+                          const justifsNewestFirst = [...justifs].filter(j => j.type !== 'ACHAT_PRODUIT').reverse();
                           const justifTotal = justifs.reduce((sum, j) => sum + (j.amount || 0), 0);
-                          const ecartRestant = s.theoretical - cash - justifTotal;
+                          // À rendre = carburant + produits vendus depuis l'armoire.
+                          const prodTotal = armoireSaleTotal(s.pompisteId);
+                          const ecartRestant = s.theoretical + prodTotal - cash - justifTotal;
+
+                          // ── Produits — Armoire : achat & vente sur la même carte ──────
+                          // Les armoires des pompes qu'il tient servent de défaut, mais
+                          // TOUTES restent proposées.
+                          const myArmoires = armoiresOfPompiste(armoires, pumpsOf(s.pompisteId),
+                            pompistes.find(p => p.id === s.pompisteId)?.trackId);
+                          const otherArmoires = armoires.filter(a => !myArmoires.some(m => m.id === a.id));
+                          const defaultArmoireIds = (myArmoires.length > 0 ? myArmoires : armoires).map(a => a.id);
+                          const primaryArmoireId = defaultArmoireIds[0] || '';
+                          /** L'armoire qui a ce produit en stock, sinon la première. */
+                          const armoireForProduct = (productId: string) =>
+                            defaultArmoireIds.find(aid => baseArmoireStockQty(aid, productId) > 0) || primaryArmoireId;
+                          const prodTab = productTab[s.pompisteId] || 'vente';
+                          const setProdTab = (t: 'achat' | 'vente') => setProductTab(prev => ({ ...prev, [s.pompisteId]: t }));
+                          const showMagasin = activeMagasinKeys().length > 1;
+
+                          // ── VENTE ──
+                          const prodSearch = armoireProductSearch[s.pompisteId] || '';
+                          const prodSales = pompisteArmoireSales[s.pompisteId] || [];
+                          const saleMatches = searchMagasinProducts(catalogue, prodSearch, 8);
+                          const addProdSale = (armoireId: string, product: BizProduct) => {
+                            setPompisteArmoireSales(prev => {
+                              const list = prev[s.pompisteId] || [];
+                              if (list.some(x => x.armoireId === armoireId && x.productId === product.id)) return prev;
+                              const byDetail = !!(product.sellByDetail && product.detailCapacity);
+                              const consigne = !!product.consigneActive;
+                              const line: ArmoireSaleLine = byDetail
+                                ? {
+                                  productId: product.id, productName: product.name, moduleKey: moduleOfProduct(product.id), armoireId,
+                                  quantity: 1 / (product.detailCapacity as number), price: detailPrice(product),
+                                  detailQty: 1, detailUnit: product.detailUnit,
+                                  unitCost: product.purchasePrice || 0,
+                                }
+                                : {
+                                  productId: product.id, productName: product.name, moduleKey: moduleOfProduct(product.id), armoireId,
+                                  quantity: 1, price: product.salePrice || 0,
+                                  // Bouteille de gaz : ce qu'on vend, c'est le remplissage.
+                                  unitCost: consigne ? (product.fillPrice ?? product.purchasePrice ?? 0) : (product.purchasePrice || 0),
+                                  consigne,
+                                };
+                              return { ...prev, [s.pompisteId]: [...list, line] };
+                            });
+                            setArmoireProductSearch(prev => ({ ...prev, [s.pompisteId]: '' }));
+                          };
+                          const patchProdSale = (armoireId: string, productId: string, patch: Partial<ArmoireSaleLine>) =>
+                            setPompisteArmoireSales(prev => ({ ...prev, [s.pompisteId]: (prev[s.pompisteId] || []).map(x => x.armoireId === armoireId && x.productId === productId ? { ...x, ...patch } : x) }));
+                          const setProdDetailQty = (armoireId: string, productId: string, detailQty: number) => {
+                            const capacity = productOf(productId)?.detailCapacity || 0;
+                            patchProdSale(armoireId, productId, { detailQty, quantity: capacity > 0 ? detailQty / capacity : detailQty });
+                          };
+                          const removeProdSale = (armoireId: string, productId: string) =>
+                            setPompisteArmoireSales(prev => ({ ...prev, [s.pompisteId]: (prev[s.pompisteId] || []).filter(x => !(x.armoireId === armoireId && x.productId === productId)) }));
+
+                          // ── ACHAT (réglé sur la caisse → rentré en armoire) ──
+                          const purchaseSearch = productPurchaseSearch[s.pompisteId] || '';
+                          const purchaseLines = justifs.filter(j => j.type === 'ACHAT_PRODUIT');
+                          const purchaseMatches = searchMagasinProducts(catalogue, purchaseSearch, 8);
+                          const patchJustif = (jid: string, changes: Partial<WizardJustification>) =>
+                            setPompisteJustifications(prev => ({ ...prev, [s.pompisteId]: (prev[s.pompisteId] || []).map(x => x.id === jid ? { ...x, ...changes } : x) }));
+                          const addPurchase = (product: BizProduct) => {
+                            // Prix d'ACHAT pré-rempli depuis la fiche, modifiable. Bouteille
+                            // de gaz : on part sur le REMPLISSAGE au prix de remplissage.
+                            const consigned = !!product.consigneActive;
+                            const unitPrice = consigned ? (product.fillPrice ?? product.purchasePrice ?? 0) : (product.purchasePrice || 0);
+                            addJustif({
+                              id: newId(), type: 'ACHAT_PRODUIT', description: '', liters: 0, amount: unitPrice,
+                              byLiters: false, productId: product.id, productName: product.name,
+                              moduleKey: moduleOfProduct(product.id),
+                              unitPrice, quantity: 1, armoireId: armoireForProduct(product.id) || primaryArmoireId, supplierName: '',
+                              consigneMode: consigned ? 'REMPLISSAGE' : undefined,
+                            });
+                            setProductPurchaseSearch(prev => ({ ...prev, [s.pompisteId]: '' }));
+                          };
+                          /** Remplissage ↔ bouteilles vides : le prix suit le mode choisi. */
+                          const setPurchaseConsigneMode = (jid: string, productId: string | undefined, mode: ConsigneMode) => {
+                            const product = productOf(productId);
+                            const price = mode === 'REMPLISSAGE'
+                              ? (product?.fillPrice ?? product?.purchasePrice ?? 0)
+                              : (product?.emptyPrice ?? product?.purchasePrice ?? 0);
+                            const line = justifs.find(j => j.id === jid);
+                            patchJustif(jid, { consigneMode: mode, unitPrice: price, amount: (line?.quantity || 0) * price });
+                          };
+                          const purchaseTotal = purchaseLines.reduce((a, j) => a + (j.amount || 0), 0);
                           const addVersement = () => setVersements(prev => ({
                             ...prev,
                             [s.pompisteId]: [...(prev[s.pompisteId] || []), {
@@ -2627,7 +3069,15 @@ const Brigades = () => {
                                   <div className="w-8 h-8 rounded-lg bg-[#001f5c] text-[#FFB800] flex items-center justify-center font-black text-xs shrink-0">{s.name[0]}</div>
                                   <p className="text-sm font-black text-slate-800 truncate">{s.name}</p>
                                 </div>
-                                <p className="text-[10px] font-black text-blue-700">Théorique: {s.theoretical.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
+                                <div className="text-right">
+                                  <p className="text-[10px] font-black text-blue-700">À rendre: {(s.theoretical + prodTotal).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
+                                  {prodTotal > 0 && (
+                                    <p className="text-[9px] font-bold text-slate-400">
+                                      carburant {s.theoretical.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}
+                                      <span className="text-emerald-600"> · produits armoire {prodTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}</span>
+                                    </p>
+                                  )}
+                                </div>
                               </div>
 
                               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2695,6 +3145,328 @@ const Brigades = () => {
                                   </div>
                                 )}
                               </div>
+
+                              {/* ── Produits — Armoire : VENTE & ACHAT sur la même carte ──
+                                  Vente : débitée de l'armoire (une bouteille de gaz vendue
+                                  reste dans l'armoire et passe de PLEINE à VIDE).
+                                  Achat : réglé sur la caisse de la brigade, il justifie le
+                                  décalage et entre en stock dans l'armoire choisie. */}
+                              {armoires.length > 0 ? (
+                                <div className="rounded-xl border-2 border-slate-200 overflow-hidden bg-white">
+                                  <div className="flex items-center justify-between gap-2 px-3 pt-3 flex-wrap">
+                                    <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-1.5">
+                                      <Package className="w-3.5 h-3.5 text-indigo-500" /> Produits — Armoire
+                                      {myArmoires.length > 0 && <span className="normal-case tracking-normal text-slate-400 font-bold">· {myArmoires.map(a => a.name).join(', ')}</span>}
+                                    </p>
+                                    <div className="text-[9px] font-black flex gap-1">
+                                      {prodTotal > 0 && <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Vente {prodTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}</span>}
+                                      {purchaseTotal > 0 && <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Achat {purchaseTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}</span>}
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-1.5 p-2.5">
+                                    <button type="button" onClick={() => setProdTab('vente')}
+                                      className={cn("flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", prodTab === 'vente' ? "bg-emerald-600 text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200")}>
+                                      🛒 Vente{prodSales.length > 0 ? ` · ${prodSales.length}` : ''}
+                                    </button>
+                                    <button type="button" onClick={() => setProdTab('achat')}
+                                      className={cn("flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all", prodTab === 'achat' ? "bg-indigo-600 text-white shadow" : "bg-slate-100 text-slate-500 hover:bg-slate-200")}>
+                                      📦 Achat{purchaseLines.length > 0 ? ` · ${purchaseLines.length}` : ''}
+                                    </button>
+                                  </div>
+
+                                  {/* ─── Onglet VENTE ─── */}
+                                  {prodTab === 'vente' && (
+                                    <div className="p-3 pt-0 space-y-2">
+                                      <div className="relative">
+                                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-emerald-400" />
+                                        <input placeholder="Rechercher un produit à vendre (nom / code-barres)…" value={prodSearch}
+                                          onChange={e => setArmoireProductSearch(prev => ({ ...prev, [s.pompisteId]: e.target.value }))}
+                                          className="w-full h-10 text-xs font-bold pl-10 pr-3 rounded-xl bg-emerald-50/50 border-2 border-emerald-100 outline-none focus:border-emerald-400 focus:bg-white transition-all" />
+                                      </div>
+                                      {prodSearch && (
+                                        <div className="border border-slate-100 rounded-xl bg-white overflow-hidden divide-y divide-slate-50 max-h-56 overflow-y-auto shadow-sm">
+                                          {saleMatches.length === 0 ? (
+                                            <p className="p-3 text-[11px] font-bold text-slate-400 text-center">Aucun produit trouvé</p>
+                                          ) : saleMatches.map(({ product, moduleKey }) => {
+                                            const armoireId = armoireForProduct(product.id);
+                                            const added = prodSales.some(x => x.armoireId === armoireId && x.productId === product.id);
+                                            const avail = effectiveArmoireAvail(armoireId, product.id);
+                                            return (
+                                              <div key={product.id} className="p-2.5 flex items-center justify-between gap-2 hover:bg-emerald-50/50">
+                                                <div className="min-w-0">
+                                                  <p className="text-xs font-black text-slate-800 truncate">
+                                                    {product.name}
+                                                    {product.sellByDetail && product.detailCapacity ? <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 uppercase">Détail</span> : null}
+                                                    {product.consigneActive && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase">Vide / Plein</span>}
+                                                    {showMagasin && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 uppercase">{magasinLabel(moduleKey)}</span>}
+                                                  </p>
+                                                  <p className="text-[9px] text-slate-400 font-bold">
+                                                    {product.consigneActive ? 'Pleines' : 'Stock'} {armoires.find(a => a.id === armoireId)?.name || 'armoire'} : <span className={cn(avail <= 0 && "text-red-500")}>{roundQty(avail).toLocaleString('fr-FR')} {product.unit || ''}</span>
+                                                    {product.consigneActive && <> · vides : {roundQty(effectiveArmoireEmptyAvail(armoireId, product.id)).toLocaleString('fr-FR')}</>} ·{' '}
+                                                    {product.sellByDetail && product.detailCapacity
+                                                      ? `${detailPrice(product).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} DA / ${product.detailUnit || 'unité'}`
+                                                      : `${(product.salePrice || 0).toLocaleString('fr-FR')} DA`}
+                                                  </p>
+                                                </div>
+                                                <button type="button" onClick={() => addProdSale(armoireId, product)} disabled={added || !armoireId}
+                                                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow bg-emerald-600 disabled:opacity-30 hover:scale-110 transition-all shrink-0">
+                                                  {added ? <CheckCircle className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                                                </button>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                      {prodSales.length === 0 ? (
+                                        <p className="text-[10px] font-bold text-slate-400 text-center py-2">Aucune vente produit. Recherchez un produit pour l'ajouter.</p>
+                                      ) : (
+                                        <div className="space-y-1.5">
+                                          {[...prodSales].reverse().map(ps => {
+                                            const avail = effectiveArmoireAvail(ps.armoireId, ps.productId);
+                                            const over = ps.quantity > avail + 1e-6;
+                                            const product = productOf(ps.productId);
+                                            const prodUnit = product?.unit || '';
+                                            const remaining = avail - ps.quantity;
+                                            const boughtHere = ps.consigne ? wizardFilledQty(ps.armoireId, ps.productId) : wizardPurchasedQty(ps.armoireId, ps.productId);
+                                            const armoireName = armoires.find(a => a.id === ps.armoireId)?.name;
+                                            return (
+                                              <div key={`${ps.armoireId}-${ps.productId}`}
+                                                className={cn("rounded-xl border p-2 space-y-1.5", over && !ps.allowNegative ? "border-red-300 bg-red-50/60" : "border-slate-100 bg-slate-50/50")}>
+                                                <div className="flex items-start gap-2">
+                                                  <div className="flex-1 min-w-0">
+                                                    <p className="text-xs font-black text-slate-800 truncate">
+                                                      {ps.productName}
+                                                      {ps.detailQty !== undefined && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 uppercase">Détail</span>}
+                                                      {ps.consigne && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase">Plein → Vide</span>}
+                                                    </p>
+                                                    <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                                                      {armoires.length > 1 ? (
+                                                        <select value={ps.armoireId}
+                                                          onChange={e => {
+                                                            const next = e.target.value;
+                                                            if (prodSales.some(x => x.armoireId === next && x.productId === ps.productId)) return;
+                                                            patchProdSale(ps.armoireId, ps.productId, { armoireId: next });
+                                                          }}
+                                                          className="h-6 px-1 rounded-md border border-slate-200 bg-white text-[9px] font-bold outline-none">
+                                                          {armoires.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                                        </select>
+                                                      ) : <span className="text-[8px] font-bold text-slate-400">{armoireName}</span>}
+                                                      <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase", avail <= 0 ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-700")}>{ps.consigne ? 'Pleines' : 'Dispo'} : {roundQty(avail).toLocaleString('fr-FR')} {prodUnit}</span>
+                                                      {ps.consigne && <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-orange-100 text-orange-700">Vides : {roundQty(effectiveArmoireEmptyAvail(ps.armoireId, ps.productId)).toLocaleString('fr-FR')}</span>}
+                                                      {boughtHere > 0 && <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase bg-indigo-100 text-indigo-700">dont {ps.consigne ? 'rempli' : 'acheté'} ici : {roundQty(boughtHere).toLocaleString('fr-FR')}</span>}
+                                                      <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase", remaining < -1e-6 ? "bg-red-100 text-red-600" : "bg-slate-100 text-slate-500")}>Reste{ps.consigne ? ' plein' : ''} : {roundQty(remaining).toLocaleString('fr-FR')} {prodUnit}</span>
+                                                    </div>
+                                                    {ps.consigne && (ps.quantity || 0) > 0 && (
+                                                      <p className="text-[8px] font-bold text-amber-700 mt-0.5">
+                                                        {roundQty(ps.quantity).toLocaleString('fr-FR')} bouteille(s) passeront de PLEINE à VIDE dans {armoireName || "l'armoire"} — le nombre total de bouteilles ne change pas.
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                  <button type="button" onClick={() => removeProdSale(ps.armoireId, ps.productId)} className="w-8 h-8 shrink-0 rounded-lg bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100"><X className="w-3.5 h-3.5" /></button>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                  <input type="number" min={0} step="any"
+                                                    value={ps.detailQty !== undefined ? ps.detailQty : ps.quantity}
+                                                    onChange={e => ps.detailQty !== undefined
+                                                      ? setProdDetailQty(ps.armoireId, ps.productId, Number(e.target.value) || 0)
+                                                      : patchProdSale(ps.armoireId, ps.productId, { quantity: Number(e.target.value) || 0 })}
+                                                    className={cn("flex-1 min-w-0 h-9 text-center rounded-lg border font-black text-xs text-blue-900 outline-none", over && !ps.allowNegative ? "border-red-300 bg-red-50" : "border-slate-200 bg-white")}
+                                                    title={ps.detailQty !== undefined ? `Quantité en ${ps.detailUnit || 'unité de détail'}` : 'Quantité'} />
+                                                  {ps.detailQty !== undefined && <span className="text-[8px] font-black text-purple-600 uppercase w-7 shrink-0 truncate">{ps.detailUnit || ''}</span>}
+                                                  <span className="text-[9px] font-bold text-slate-400 shrink-0">×</span>
+                                                  <input type="number" min={0} step="any" value={ps.price}
+                                                    onChange={e => patchProdSale(ps.armoireId, ps.productId, { price: Number(e.target.value) || 0 })}
+                                                    className="flex-1 min-w-0 h-9 text-center rounded-lg border border-slate-200 bg-white font-black text-xs text-blue-900 outline-none"
+                                                    title={ps.detailQty !== undefined ? `Prix par ${ps.detailUnit || 'unité de détail'}` : 'Prix unitaire'} />
+                                                  <span className="text-[10px] font-black text-emerald-700 w-16 shrink-0 text-right tabular-nums">{armoireLineTotal(ps).toLocaleString('fr-FR', { maximumFractionDigits: 0 })}</span>
+                                                </div>
+                                                {/* Stock insuffisant : acheter / remplir d'abord, OU vendre en négatif. */}
+                                                {over && (
+                                                  <div className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-red-100">
+                                                    <p className="text-[9px] font-black text-red-600">
+                                                      {ps.consigne
+                                                        ? `⚠️ Pas assez de bouteilles PLEINES (${roundQty(avail).toLocaleString('fr-FR')}). Faites d'abord un remplissage ou vendez en stock négatif.`
+                                                        : `⚠️ Stock insuffisant (${roundQty(avail).toLocaleString('fr-FR')} ${prodUnit}). Achetez d'abord ou vendez en stock négatif.`}
+                                                    </p>
+                                                    <div className="flex gap-1.5">
+                                                      {product && (
+                                                        <button type="button" onClick={() => { setProdTab('achat'); addPurchase(product); }}
+                                                          className="px-2 py-1 rounded-lg bg-indigo-600 text-white text-[8px] font-black uppercase hover:bg-indigo-700">
+                                                          {ps.consigne ? "🔵 Remplir d'abord" : "📦 Acheter d'abord"}
+                                                        </button>
+                                                      )}
+                                                      <button type="button" onClick={() => patchProdSale(ps.armoireId, ps.productId, { allowNegative: !ps.allowNegative })}
+                                                        className={cn("px-2 py-1 rounded-lg text-[8px] font-black uppercase transition-all", ps.allowNegative ? "bg-red-600 text-white" : "bg-white border border-red-300 text-red-600 hover:bg-red-50")}>
+                                                        {ps.allowNegative ? '✓ Vente en négatif' : 'Vendre en négatif'}
+                                                      </button>
+                                                    </div>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                          <p className="text-[10px] font-black text-right text-emerald-700">Sous-total ventes : {prodTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* ─── Onglet ACHAT ─── */}
+                                  {prodTab === 'achat' && (
+                                    <div className="p-3 pt-0 space-y-2">
+                                      <p className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg p-2">Le fournisseur a livré au pompiste, réglé sur la caisse de la brigade → la quantité rentre en stock dans l'armoire.</p>
+                                      <div className="relative">
+                                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
+                                        <input placeholder="Rechercher un produit acheté (nom / code-barres)…" value={purchaseSearch}
+                                          onChange={e => setProductPurchaseSearch(prev => ({ ...prev, [s.pompisteId]: e.target.value }))}
+                                          className="w-full h-10 text-xs font-bold pl-10 pr-3 rounded-xl bg-indigo-50/50 border-2 border-indigo-100 outline-none focus:border-indigo-400 focus:bg-white transition-all" />
+                                      </div>
+                                      {purchaseSearch && (
+                                        <div className="border border-slate-100 rounded-xl bg-white overflow-hidden divide-y divide-slate-50 max-h-56 overflow-y-auto shadow-sm">
+                                          {purchaseMatches.length === 0 ? (
+                                            <p className="p-3 text-[11px] font-bold text-slate-400 text-center">Aucun produit trouvé</p>
+                                          ) : purchaseMatches.map(({ product, moduleKey }) => {
+                                            const added = purchaseLines.some(j => j.productId === product.id);
+                                            return (
+                                              <div key={product.id} className="p-2.5 flex items-center justify-between gap-2 hover:bg-indigo-50/50">
+                                                <div className="min-w-0">
+                                                  <p className="text-xs font-black text-slate-800 truncate">
+                                                    {product.name}
+                                                    {product.consigneActive && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase">Vide / Plein</span>}
+                                                    {showMagasin && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 uppercase">{magasinLabel(moduleKey)}</span>}
+                                                  </p>
+                                                  <p className="text-[9px] text-slate-400 font-bold">
+                                                    {product.consigneActive
+                                                      ? `Remplissage : ${(product.fillPrice ?? product.purchasePrice ?? 0).toLocaleString('fr-FR')} DA · bouteille vide : ${(product.emptyPrice ?? 0).toLocaleString('fr-FR')} DA`
+                                                      : `Prix d'achat : ${(product.purchasePrice || 0).toLocaleString('fr-FR')} DA`}
+                                                    {' '}· Stock magasin : {roundQty(product.currentQty || 0).toLocaleString('fr-FR')} {product.unit || ''}
+                                                  </p>
+                                                </div>
+                                                <button type="button" onClick={() => addPurchase(product)}
+                                                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white shadow bg-indigo-600 hover:scale-110 transition-all shrink-0">
+                                                  {added ? <CheckCircle className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                                                </button>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                      {purchaseLines.length === 0 ? (
+                                        <p className="text-[10px] font-bold text-slate-400 text-center py-2">Aucun achat. Recherchez un produit pour l'ajouter.</p>
+                                      ) : (
+                                        <div className="space-y-1.5">
+                                          {[...purchaseLines].reverse().map(j => {
+                                            const stockInfo = j.armoireId && j.productId ? armoireInitialInfo(j.armoireId, j.productId) : null;
+                                            const purchProd = productOf(j.productId);
+                                            const prodUnit = purchProd?.unit || '';
+                                            const purchConsigned = !!purchProd?.consigneActive;
+                                            const isRefill = purchConsigned && j.consigneMode === 'REMPLISSAGE';
+                                            // Vides disponibles au remplissage (la ligne courante comprise).
+                                            const emptyAvail = purchConsigned && j.armoireId && j.productId
+                                              ? effectiveArmoireEmptyAvail(j.armoireId, j.productId) + (isRefill ? (j.quantity || 0) : 0)
+                                              : 0;
+                                            const refillOverflow = isRefill && (j.quantity || 0) > emptyAvail + 1e-6;
+                                            return (
+                                              <div key={j.id} className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-2 space-y-1.5">
+                                                <div className="flex items-center justify-between gap-2">
+                                                  <p className="text-xs font-black text-indigo-900 truncate flex-1 min-w-0">
+                                                    {j.productName || '—'}
+                                                    {purchConsigned && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase">Vide / Plein</span>}
+                                                  </p>
+                                                  {stockInfo && (
+                                                    <span className="text-[8px] font-black px-1.5 py-0.5 shrink-0 rounded-full uppercase bg-white text-indigo-600">
+                                                      {isRefill
+                                                        ? `Vides ${roundQty(stockInfo.currentEmpty).toLocaleString('fr-FR')} → ${roundQty(Math.max(0, stockInfo.currentEmpty - (j.quantity || 0))).toLocaleString('fr-FR')}`
+                                                        : `Stock ${roundQty(stockInfo.current).toLocaleString('fr-FR')} → ${roundQty(stockInfo.current + (j.quantity || 0)).toLocaleString('fr-FR')} ${prodUnit}`}
+                                                    </span>
+                                                  )}
+                                                  <button type="button" onClick={() => removeJustif(j.id)} className="w-8 h-8 shrink-0 rounded-lg bg-red-50 text-red-500 flex items-center justify-center hover:bg-red-100"><X className="w-3.5 h-3.5" /></button>
+                                                </div>
+
+                                                {/* Bouteille de gaz : que paie-t-on ? Le REMPLISSAGE de
+                                                    bouteilles vides de l'armoire, ou des bouteilles VIDES en plus. */}
+                                                {purchConsigned && (
+                                                  <div className="grid grid-cols-2 gap-1.5">
+                                                    {([
+                                                      { mode: 'REMPLISSAGE' as ConsigneMode, label: '🔵 Remplissage', hint: `${roundQty(emptyAvail).toLocaleString('fr-FR')} vide(s) dispo` },
+                                                      { mode: 'VIDE' as ConsigneMode, label: '⚪ Bouteilles vides', hint: 'Contenants en plus' },
+                                                    ]).map(o => (
+                                                      <button key={o.mode} type="button" onClick={() => setPurchaseConsigneMode(j.id, j.productId, o.mode)}
+                                                        className={cn("p-2 rounded-lg border-2 text-left transition-all", j.consigneMode === o.mode ? "border-amber-500 bg-amber-50" : "border-slate-200 bg-white hover:border-amber-200")}>
+                                                        <span className="block text-[9px] font-black uppercase tracking-widest text-slate-800">{o.label}</span>
+                                                        <span className="block text-[8px] font-bold text-slate-400">{o.hint}</span>
+                                                      </button>
+                                                    ))}
+                                                  </div>
+                                                )}
+
+                                                <div className="grid grid-cols-2 gap-1.5">
+                                                  <div>
+                                                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-0.5">{isRefill ? 'Bouteilles vides à remplir' : 'Quantité'}</label>
+                                                    <input type="number" min={0} step="any" value={j.quantity || ''} placeholder="0"
+                                                      onChange={e => { const q = Number(e.target.value) || 0; patchJustif(j.id, { quantity: q, amount: q * (j.unitPrice || 0) }); }}
+                                                      className={cn("w-full h-9 px-2 rounded-lg border font-black text-xs text-indigo-900 outline-none", refillOverflow ? "border-orange-300 bg-orange-50" : "border-slate-200 bg-white")} />
+                                                  </div>
+                                                  <div>
+                                                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-0.5">{isRefill ? 'Prix de remplissage (1 bouteille)' : purchConsigned ? 'Prix bouteille vide' : "Prix d'achat"}</label>
+                                                    <input type="number" min={0} step="any" value={j.unitPrice || ''} placeholder="0"
+                                                      onChange={e => { const pr = Number(e.target.value) || 0; patchJustif(j.id, { unitPrice: pr, amount: (j.quantity || 0) * pr }); }}
+                                                      className="w-full h-9 px-2 rounded-lg border border-slate-200 bg-white font-black text-xs text-indigo-900 outline-none" />
+                                                  </div>
+                                                </div>
+                                                {isRefill && (
+                                                  <p className={cn("text-[9px] font-bold", refillOverflow ? "text-orange-600" : "text-blue-600")}>
+                                                    {refillOverflow
+                                                      ? `⚠️ ${roundQty(j.quantity || 0).toLocaleString('fr-FR')} bouteille(s) à remplir pour ${roundQty(emptyAvail).toLocaleString('fr-FR')} vide(s) recensée(s) dans l'armoire.`
+                                                      : `${roundQty(j.quantity || 0).toLocaleString('fr-FR')} bouteille(s) vide(s) deviendront PLEINES dans l'armoire — le nombre total de bouteilles ne change pas.`}
+                                                  </p>
+                                                )}
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                                  <div>
+                                                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-0.5">Armoire de destination</label>
+                                                    <select value={j.armoireId || ''} onChange={e => patchJustif(j.id, { armoireId: e.target.value || undefined })}
+                                                      className={cn("w-full h-9 px-1.5 rounded-lg border font-bold text-[11px] outline-none bg-white", !j.armoireId ? "border-red-300 text-red-600" : "border-slate-200")}>
+                                                      <option value="">— Choisir une armoire —</option>
+                                                      {myArmoires.length > 0 && (
+                                                        <optgroup label="Armoires de ses pompes">
+                                                          {myArmoires.map(a => (
+                                                            <option key={a.id} value={a.id}>{a.name}{j.productId ? ` · stock ${roundQty(baseArmoireStockQty(a.id, j.productId)).toLocaleString('fr-FR')} ${prodUnit}` : ''}</option>
+                                                          ))}
+                                                        </optgroup>
+                                                      )}
+                                                      {otherArmoires.length > 0 && (
+                                                        <optgroup label="Autres armoires de la station">
+                                                          {otherArmoires.map(a => (
+                                                            <option key={a.id} value={a.id}>{a.name}{j.productId ? ` · stock ${roundQty(baseArmoireStockQty(a.id, j.productId)).toLocaleString('fr-FR')} ${prodUnit}` : ''}</option>
+                                                          ))}
+                                                        </optgroup>
+                                                      )}
+                                                    </select>
+                                                  </div>
+                                                  <div>
+                                                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-0.5">Fournisseur (option.)</label>
+                                                    <input value={j.supplierName || ''} onChange={e => patchJustif(j.id, { supplierName: e.target.value })} placeholder="Nom"
+                                                      className="w-full h-9 px-2 rounded-lg border border-slate-200 bg-white font-bold text-[11px] outline-none" />
+                                                  </div>
+                                                </div>
+                                                <div className="flex items-center justify-between">
+                                                  {!j.armoireId && <span className="text-[9px] font-bold text-red-600">Choisissez une armoire pour rentrer le stock.</span>}
+                                                  <span className="ml-auto text-[10px] font-black text-indigo-700">Total : {((j.quantity || 0) * (j.unitPrice || 0)).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</span>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                          <p className="text-[10px] font-black text-right text-indigo-700">Sous-total achats : {purchaseTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-[10px] font-bold text-slate-400 bg-slate-50 rounded-xl p-2.5 flex items-center gap-1.5">
+                                  <Archive className="w-3.5 h-3.5" /> Aucune armoire : créez-en une (section « Armoires ») pour vendre ou acheter des produits pendant la brigade.
+                                </p>
+                              )}
 
                               {/* Justification buttons */}
                               <div className="flex flex-wrap gap-2">
@@ -2862,11 +3634,11 @@ const Brigades = () => {
                               })()}
 
                               {/* Justification list — de la plus récente à la plus ancienne */}
-                              {justifs.length > 0 && (
+                              {justifsNewestFirst.length > 0 && (
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between px-0.5">
                                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                                      Justifications ({justifs.length})
+                                      Justifications ({justifsNewestFirst.length})
                                     </p>
                                     <p className="text-[9px] font-bold text-slate-400 uppercase">La plus récente en premier</p>
                                   </div>
@@ -2999,7 +3771,11 @@ const Brigades = () => {
 
                       {/* SUB-SECTION C: Récapitulatif final */}
                       {(() => {
-                        const totalTheo = pompisteSales.reduce((s, x) => s + x.theoretical, 0);
+                        // Carburant + produits vendus depuis les armoires.
+                        const totalProducts = pompisteSales.reduce((s, x) => s + armoireSaleTotal(x.pompisteId), 0);
+                        const totalTheo = pompisteSales.reduce((s, x) => s + x.theoretical, 0) + totalProducts;
+                        const totalProductPurchases = (Object.values(pompisteJustifications).flat() as WizardJustification[])
+                          .filter(j => j.type === 'ACHAT_PRODUIT').reduce((a, j) => a + (j.amount || 0), 0);
                         const totalCash = pompisteSales.reduce((s, x) => s + (pompistePayments[x.pompisteId] || 0), 0);
                         const totalJust = pompisteSales.reduce((s, x) => s + (pompisteJustifications[x.pompisteId] || []).reduce((a, j) => a + (j.amount || 0), 0), 0);
                         const solde = totalTheo - totalCash - totalJust;
@@ -3008,6 +3784,12 @@ const Brigades = () => {
                             <h4 className="text-[10px] font-black text-[#FFB800] uppercase tracking-widest">Récapitulatif final</h4>
                             <div className="grid grid-cols-2 gap-2 text-[11px] font-bold">
                               <p>Total théorique:</p><p className="text-right text-[#FFB800] font-black">{totalTheo.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
+                              {totalProducts > 0 && (<>
+                                <p className="text-emerald-200">dont produits armoires:</p><p className="text-right font-black text-emerald-300">{totalProducts.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
+                              </>)}
+                              {totalProductPurchases > 0 && (<>
+                                <p className="text-indigo-200">Achats produits (armoire):</p><p className="text-right font-black text-indigo-200">{totalProductPurchases.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
+                              </>)}
                               <p>Total espèces:</p><p className="text-right font-black">{totalCash.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
                               <p>Total justifications:</p><p className="text-right font-black">{totalJust.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>
                               <p>Solde restant:</p><p className={cn("text-right font-black", Math.abs(solde) < 0.01 ? "text-green-300" : "text-red-300")}>{solde.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</p>

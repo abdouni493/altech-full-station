@@ -4,8 +4,9 @@ import { motion } from "motion/react";
 import { X, Printer, Download } from "lucide-react";
 import { exportElementToPdf, printDocumentMode } from "../lib/pdf";
 import {
-  Brigade, Pump, Tank, Pompiste, BrigadeChef, PumpNozzle, Track, ShopSale, StationSettings, BrigadeAccounting
+  Brigade, Pump, Tank, Pompiste, BrigadeChef, PumpNozzle, Track, ShopSale, StationSettings, BrigadeAccounting, useAppState
 } from "../store/AppContext";
+import BrigadeArmoireMovements, { hasArmoireMoves } from "./armoires/BrigadeArmoireMovements";
 import {
   brigadeNozzleRows, brigadePompisteGroups, brigadeTankRows, brigadeTotals, justifiedByPompiste,
 } from "../lib/brigadeCalc";
@@ -35,6 +36,7 @@ const BrigadeFicheModal: React.FC<Props> = ({
 }) => {
   const ficheRef = useRef<HTMLDivElement>(null);
   const chef = brigadeChefs.find(c => c.id === brigade.chefId);
+  const { armoires = [] } = useAppState();
 
   // Tout le calcul de la fiche vient de `lib/brigadeCalc` : chaque pistolet est
   // valorisé au carburant de SA cuve, et le regroupement se fait par pompiste —
@@ -368,6 +370,14 @@ const BrigadeFicheModal: React.FC<Props> = ({
               ))}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {/* Produits — Armoires : ventes, achats, stock début → fin (bouteilles comprises) */}
+      {hasArmoireMoves(brigade) && (
+        <section>
+          <FicheHeader label="Produits — Armoires" />
+          <BrigadeArmoireMovements brigade={brigade} pompistes={pompistes} armoires={armoires} print />
         </section>
       )}
 

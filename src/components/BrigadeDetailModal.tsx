@@ -8,6 +8,7 @@ import { cn } from "@/src/lib/utils";
 import {
   useAppState, Brigade, Pump, Tank, Pompiste, BrigadeChef, PumpNozzle, Track, ShopSale, StationSettings, BrigadeAccounting, Client, nozzleTankId
 } from "../store/AppContext";
+import BrigadeArmoireMovements, { hasArmoireMoves } from './armoires/BrigadeArmoireMovements';
 import {
   brigadeNozzleRows, brigadeTankRows, brigadePompisteGroups, brigadeTotals, justifiedByPompiste, toNum,
 } from "../lib/brigadeCalc";
@@ -42,7 +43,7 @@ const BrigadeDetailModal: React.FC<Props> = ({
   brigade, pumps, tanks, pompistes, brigadeChefs, pumpNozzles, tracks,
   shopSales, settings, accounting: initialAccounting, clients, initialSection, onClose
 }) => {
-  const { brigadeAccountings, bankAccounts = [] } = useAppState();
+  const { brigadeAccountings, bankAccounts = [], armoires = [] } = useAppState();
   const [activeSection, setActiveSection] = useState(initialSection || 'info');
   const chef = brigadeChefs.find(c => c.id === brigade.chefId);
   const accounting = initialAccounting || brigadeAccountings.find(a => a.brigadeId === brigade.id);
@@ -621,6 +622,11 @@ const BrigadeDetailModal: React.FC<Props> = ({
                         </div>
                       )}
 
+                      {/* ⑥bis Produits — Armoires : ventes, achats et stock début → fin */}
+                      {hasArmoireMoves(brigade) && (
+                        <BrigadeArmoireMovements brigade={brigade} pompistes={pompistes} armoires={armoires} />
+                      )}
+
                       {/* ⑦ Justifications Clients / TAG / TPE / Dépenses */}
                       {(accountingRecord.justifications || []).length > 0 && (
                         <div className="space-y-2">
@@ -630,8 +636,11 @@ const BrigadeDetailModal: React.FC<Props> = ({
                             const track = tracks.find(t => t.id === j.trackId);
                             const pompiste = pompistes.find(p => p.id === j.pompisteId);
                             const isExpense = j.justificationType === 'EXPENSE';
-                            const label = j.clientName || client?.name || j.notes || j.justificationType || 'Justification';
-                            const typeLabel = isExpense ? 'DÉPENSE' : (j.justificationType || 'CLIENT');
+                            const isProduct = j.justificationType === 'ACHAT_PRODUIT';
+                            const label = isProduct
+                              ? `📦 ${j.productName || 'Produit'} × ${(j.quantity || 0).toLocaleString('fr-FR')}${j.consigneMode ? (j.consigneMode === 'REMPLISSAGE' ? ' (remplissage)' : ' (bouteilles vides)') : ''} → ${armoires.find(a => a.id === j.armoireId)?.name || 'armoire'}`
+                              : (j.clientName || client?.name || j.notes || j.justificationType || 'Justification');
+                            const typeLabel = isExpense ? 'DÉPENSE' : isProduct ? 'ACHAT PRODUIT' : (j.justificationType || 'CLIENT');
                             return (
                               <div key={j.id} className={cn('flex items-center justify-between p-3 rounded-xl border', isExpense ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100')}>
                                 <div>

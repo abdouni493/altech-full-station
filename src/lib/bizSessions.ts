@@ -22,7 +22,7 @@
  * ──────────────────────────────────────────────────────────────────────────────
  */
 import { supabase } from './supabase';
-import { BizSession, ModuleKey } from './bizConfig';
+import { BizSession, ModuleKey, MODULE_KEYS, isModuleKey } from './bizConfig';
 
 /** Row shape of `public.biz_sessions`. */
 interface BizSessionRow {
@@ -126,10 +126,10 @@ export async function loadBizSessions(): Promise<Record<ModuleKey, BizSession[]>
       if (!isMissingTable(error)) console.warn('[biz_sessions] load', error.message);
       return null;
     }
-    const out: Record<ModuleKey, BizSession[]> = { restaurant: [], cafeteria: [], lavage: [] };
+    const out = Object.fromEntries(MODULE_KEYS.map(k => [k, [] as BizSession[]])) as Record<ModuleKey, BizSession[]>;
     ((data || []) as BizSessionRow[]).forEach(r => {
       const key = r.module_key as ModuleKey;
-      if (key === 'restaurant' || key === 'cafeteria' || key === 'lavage') out[key].push(rowToSession(r));
+      if (isModuleKey(key)) out[key].push(rowToSession(r));
     });
     return out;
   } catch {

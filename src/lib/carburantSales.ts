@@ -99,6 +99,18 @@ export interface FuelBrigadeSale {
   expense: number;
   /** Manquant non justifié à la clôture. */
   rest: number;
+  /**
+   * Ventes de produits depuis les ARMOIRES (bouteilles de gaz, lubrifiants…)
+   * pendant la brigade. Elles s'ajoutent à ce que les pompistes doivent rendre,
+   * mais ne sont PAS du carburant : elles restent hors de `revenue` / `liters`.
+   */
+  productSales: number;
+  /** Coût de revient de ces ventes (prix d'achat / de remplissage figé). */
+  productCost: number;
+  /** Achats de produits réglés sur la caisse de la brigade et rangés en armoire. */
+  productPurchases: number;
+  /** Détail des produits vendus depuis les armoires. */
+  productLines: { name: string; qty: number; price: number; total: number; cost: number; consigne?: boolean }[];
   pompistes: FuelPompisteLine[];
   byFuel: FuelTypeSales[];
   byPump: FuelPumpSales[];
@@ -119,6 +131,11 @@ export interface CarburantSales {
   /** Dépenses de brigade justifiées sur la période. */
   expense: number;
   rest: number;
+  /** Ventes de produits depuis les armoires (hors carburant). */
+  productSales: number;
+  productCost: number;
+  /** Achats de produits réglés sur les caisses des brigades. */
+  productPurchases: number;
   /** Ce qui est réellement rentré : espèces + TPE. Le crédit ne l'est pas encore. */
   collected: number;
   counts: { brigades: number; closed: number };
@@ -205,8 +222,21 @@ export function computeCarburantSales(app: any, from: string, to: string): Carbu
       }));
       const grossRevenue = grossLines.reduce((s, l) => s + l.revenue, 0);
 
+      // ── Produits vendus depuis les ARMOIRES pendant la brigade ──
+      // Le dû figé de la comptabilité les inclut (le pompiste rend aussi cet
+      // argent) : on les retire avant de caler les litres, sinon une bouteille
+      // de gaz vendue gonflerait les litres de carburant au prorata.
+      const productLines = ((b.armoireSales || []) as any[]).map(x => ({
+        name: String(x.productName || 'Produit'),
+        qty: num(x.quantity), price: num(x.price), total: num(x.total),
+        cost: num(x.quantity) * num(x.unitCost), consigne: !!x.consigne,
+      }));
+      const productSales = productLines.reduce((s, l) => s + l.total, 0);
+      const productCost = productLines.reduce((s, l) => s + l.cost, 0);
+
       // Le CA qui fait foi : celui de la comptabilité quand elle existe.
-      const revenue = acc && num(acc.totalDue) > 0 ? num(acc.totalDue) : grossRevenue;
+      const fuelDue = acc ? num(acc.totalDue) - productSales : 0;
+      const revenue = acc && fuelDue > 0 ? fuelDue : grossRevenue;
       // Calage au prorata : le détail par carburant retombe sur le CA affiché.
       const ratio = grossRevenue > 0 ? revenue / grossRevenue : 1;
       const byFuel = grossLines.map(l => {
@@ -241,14 +271,18 @@ export function computeCarburantSales(app: any, from: string, to: string): Carbu
       const justifs: any[] = acc?.justifications || [];
       const isBank = (j: any) => j.justificationType === 'TAG' || j.justificationType === 'TPE';
       const isExpense = (j: any) => j.justificationType === 'EXPENSE';
+      // Un ACHAT de produit (rangé en armoire) n'est ni une banque, ni une
+      // créance client : de l'argent de la caisse devenu de la marchandise.
+      const isProductPurchase = (j: any) => j.justificationType === 'ACHAT_PRODUIT';
       const tpe = justifs.filter(isBank).reduce((s, j) => s + num(j.amount), 0);
       // Une dépense de brigade justifie le reste, mais ce n'est ni de la banque
       // ni une créance client : elle a sa propre part.
       const expense = justifs.filter(isExpense).reduce((s, j) => s + num(j.amount), 0);
-      const credit = justifs.filter(j => !isBank(j) && !isExpense(j)).reduce((s, j) => s + num(j.amount), 0);
+      const productPurchases = justifs.filter(isProductPurchase).reduce((s, j) => s + num(j.amount), 0);
+      const credit = justifs.filter(j => !isBank(j) && !isExpense(j) && !isProductPurchase(j)).reduce((s, j) => s + num(j.amount), 0);
       const cash = num(acc?.cashReceived);
       // Le manquant enregistré fait foi ; sinon on le recalcule.
-      const rest = acc ? num(acc.rest) : revenue - cash - tpe - credit - expense;
+      const rest = acc ? num(acc.rest) : revenue + productSales - cash - tpe - credit - expense - productPurchases;
 
       const summaries: Record<string, any> = acc?.pompisteSummary || b.pompisteData || {};
       const pompisteLines: FuelPompisteLine[] = Object.entries(summaries).map(([id, d]: [string, any]) => {
@@ -275,6 +309,7 @@ export function computeCarburantSales(app: any, from: string, to: string): Carbu
         status: b.status || (acc?.status === 'completed' ? 'Clôturée' : 'En cours'),
         closed: b.status === 'Clôturée' || acc?.status === 'completed',
         liters, revenue, cost, cash, tpe, credit, expense, rest,
+        productSales, productCost, productPurchases, productLines,
         pompistes: pompisteLines,
         byFuel, byPump,
       };
@@ -296,6 +331,9 @@ export function computeCarburantSales(app: any, from: string, to: string): Carbu
     credit: sum(r => r.credit),
     expense: sum(r => r.expense),
     rest: sum(r => r.rest),
+    productSales: sum(r => r.productSales),
+    productCost: sum(r => r.productCost),
+    productPurchases: sum(r => r.productPurchases),
     collected: cash + tpe,
     counts: { brigades: rows.length, closed: rows.filter(r => r.closed).length },
   };

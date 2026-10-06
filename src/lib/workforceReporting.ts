@@ -21,17 +21,24 @@
 import {
   BizState, ModuleKey, MODULES, BizWorker, BizReparation, BizSession, BizSale,
   WORKER_KIND_META, prestationsOf, workerShareOf, isReversedSale, netCashOfSale,
+  isMagasin2Enabled,
 } from './bizConfig';
 import { within } from './bizReporting';
 
-export type WorkforcePart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage';
+export type WorkforcePart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
 
 export const PART_META: Record<WorkforcePart, { label: string; emoji: string; color: string }> = {
   carburant: { label: 'Carburant', emoji: '⛽', color: '#003087' },
   restaurant: { label: 'Restaurant', emoji: '🍽️', color: '#be123c' },
   cafeteria: { label: 'Cafétéria', emoji: '☕', color: '#b45309' },
-  lavage: { label: 'Magasin', emoji: '🛒', color: '#0e7490' },
+  // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
+  get lavage() { return { label: MODULES.lavage.label, emoji: '🛒', color: '#0e7490' }; },
+  get magasin2() { return { label: MODULES.magasin2.label, emoji: '🏬', color: '#7c3aed' }; },
 };
+
+/** Les parties affichées : le second magasin n'apparaît qu'une fois créé. */
+export const activeWorkforceParts = (): WorkforcePart[] =>
+  (Object.keys(PART_META) as WorkforcePart[]).filter(k => k !== 'magasin2' || isMagasin2Enabled());
 
 // ─── Detail rows ─────────────────────────────────────────────────────────────
 export interface WFPayment { id: string; label: string; date: string; amount: number; description?: string; mode?: string; worksCount?: number }
@@ -551,7 +558,7 @@ export function computeWorkforce(app: any, biz: BizState, from: string, to: stri
   ].sort((a, b) => a.part.localeCompare(b.part) || a.name.localeCompare(b.name));
 
   const partOf = (k: WorkforcePart) => workers.filter(w => w.part === k);
-  const parts: WorkforcePartSummary[] = (Object.keys(PART_META) as WorkforcePart[]).map(k => {
+  const parts: WorkforcePartSummary[] = activeWorkforceParts().map(k => {
     const list = partOf(k);
     const activity = k === 'carburant'
       ? { label: 'Brigades', value: list.reduce((s, w) => s + w.brigadesCount, 0) }

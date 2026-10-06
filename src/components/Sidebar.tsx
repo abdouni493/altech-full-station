@@ -8,14 +8,14 @@ import {
   BarChart2, Archive, UserCog, DollarSign, Building2, ChevronRight, X,
   Wallet, CalendarCheck, Shield, UserCheck, Calendar,
   FlaskConical, Beaker, ShoppingBag, Car, Utensils, Coffee, Droplets, FileBarChart,
-  BellRing, Landmark, PiggyBank, MessageSquare, MessageCircle, Star
+  BellRing, Landmark, PiggyBank, MessageSquare, MessageCircle, Star, ArrowLeftRight
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { useAppState, UserPermissions, ModuleWorkerSession, AppUserRole } from "../store/AppContext";
 import { useBizAll } from "../store/BizContext";
 import { useFeedbacks } from "../store/FeedbackContext";
-import { MODULES, ModuleKey } from "../lib/bizConfig";
+import { MODULES, ModuleKey, activeModuleKeys } from "../lib/bizConfig";
 import { buildRappels, countDue } from "../lib/rappels";
 
 // --- Types ---
@@ -102,7 +102,26 @@ function buildModuleNavGroup(key: ModuleKey): NavGroup {
   return { id: key, label: cfg.label, items };
 }
 
-const ADMIN_NAV_GROUPS: NavGroup[] = [
+/**
+ * Section « Armoires » : les rangements de produits de la piste, d'où les
+ * pompistes vendent pendant leur brigade, et les transferts qui les
+ * alimentent depuis le premier ou le second magasin.
+ */
+const ARMOIRES_NAV_GROUP: NavGroup = {
+  id: "armoires", label: "Armoires",
+  items: [
+    { label: "Armoires",   icon: Archive,        path: "/armoires",   moduleId: "Armoires" },
+    { label: "Transferts", icon: ArrowLeftRight, path: "/transferts", moduleId: "Transferts" },
+  ],
+};
+
+/**
+ * Barre latérale de l'administrateur. Construite À CHAQUE RENDU (et non une
+ * fois au chargement) : les noms des magasins et l'existence du second magasin
+ * viennent des réglages, qui peuvent changer pendant la session.
+ */
+function buildAdminNavGroups(): NavGroup[] {
+  return [
   {
     id: "dashboard",
     items: [{ label: "Tableau de Bord", icon: LayoutDashboard, path: "/dashboard", moduleId: "Tableau de bord" }]
@@ -136,10 +155,11 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
       { label: "Retours Clients",    icon: MessageSquare, path: "/feedbacks",      moduleId: "Retours Clients" },
     ]
   },
-  buildModuleNavGroup("restaurant"),
-  buildModuleNavGroup("cafeteria"),
-  buildModuleNavGroup("lavage"),
-];
+  ARMOIRES_NAV_GROUP,
+  // Restaurant, Cafétéria, Magasin — et le second magasin une fois créé.
+  ...activeModuleKeys().map(buildModuleNavGroup),
+  ];
+}
 
 // --- Worker nav (permission-driven) ---
 //
@@ -173,6 +193,9 @@ const WORKER_MODULE_NAV: Record<string, ModuleNavDef> = {
   "Fiche Journalière": { label: "Fiche Journalière", icon: FileText,     path: "/daily-report",    group: "finance" },
   "Caisse Générale":   { label: "Caisse Générale",   icon: PiggyBank,    path: "/caisse-generale", group: "finance" },
   "Comptes Bancaires": { label: "Comptes Bancaires", icon: Landmark,     path: "/bank-accounts",   group: "finance" },
+  // Armoires (rangements de la piste) & transferts depuis les magasins
+  "Armoires":          { label: "Armoires",          icon: Archive,      path: "/armoires",        group: "armoires" },
+  "Transferts":        { label: "Transferts",        icon: ArrowLeftRight, path: "/transferts",    group: "armoires" },
   // Analytique
   "Statistiques":      { label: "Statistiques",      icon: BarChart2,    path: "/statistics",      group: "stats" },
   "Rapports":          { label: "Rapports",          icon: Receipt,      path: "/reports",         group: "stats" },
@@ -185,6 +208,7 @@ const WORKER_MODULE_NAV: Record<string, ModuleNavDef> = {
 const WORKER_GROUP_ORDER: { id: string; label?: string }[] = [
   { id: "ops",      label: "Mon Travail" },
   { id: "fuel",     label: "Carburant" },
+  { id: "armoires", label: "Armoires" },
   { id: "contacts", label: "Contacts" },
   { id: "hr",       label: "Personnel" },
   { id: "finance",  label: "Finances" },
@@ -356,7 +380,7 @@ function getNavGroups(
 
     case 'admin':
     default:
-      return ADMIN_NAV_GROUPS;
+      return buildAdminNavGroups();
   }
 }
 
@@ -423,7 +447,7 @@ const SETTINGS_PATH: Record<string, string> = {
 // leurs raccourcis.
 
 /** Les sections qui acceptent des favoris : les quatre activités. */
-const FAVORITE_GROUPS = new Set(["carburant", "restaurant", "cafeteria", "lavage"]);
+const FAVORITE_GROUPS = new Set(["carburant", "armoires", "restaurant", "cafeteria", "lavage", "magasin2"]);
 
 const favKey = (who: string) => `altech.sidebar.favorites.${who || "anon"}`;
 
@@ -481,9 +505,10 @@ const Sidebar = ({ isOpen, onClose, activePath, onNavigate, onLogout, userRole, 
     return null;
   }, [userId, userRole, pompistes, brigadeChefs, gerants, magasinWorkers, users, moduleWorker]);
 
+  // `settings` : les noms des magasins et le second magasin changent la barre.
   const navGroups = useMemo(
     () => getNavGroups(userRole, userPermissions, moduleWorker),
-    [userRole, userPermissions, moduleWorker]
+    [userRole, userPermissions, moduleWorker, settings?.magasin1Name, settings?.magasin2Name, settings?.magasin2Enabled]
   );
 
   // Pending demandes d'encaissement / interventions, shown on the buttons.

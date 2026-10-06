@@ -24,6 +24,7 @@ import {
   CreditCard,
   MessageCircle,
   QrCode,
+  Store,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn, litersFromDegrees } from "@/src/lib/utils";
@@ -38,6 +39,7 @@ import {
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import QrCodePanel from "../components/QrCodePanel";
+import MagasinsSettings from "../components/MagasinsSettings";
 
 const Settings = () => {
   const { t, i18n } = useTranslation();
@@ -246,6 +248,14 @@ const Settings = () => {
         dispatch({ type: "ADD_TOAST", payload: { type: "error", message: "Échec upload logo — paramètres sauvegardés sans nouveau logo." } });
       }
     }
+    // Les magasins ont leur propre enregistrement (section « Magasins ») : ce
+    // bouton ne doit jamais les ramener à une valeur lue à l'ouverture.
+    savedForm = {
+      ...savedForm,
+      magasin1Name: settings.magasin1Name,
+      magasin2Name: settings.magasin2Name,
+      magasin2Enabled: settings.magasin2Enabled,
+    };
     dispatch({ type: "SET_SETTINGS", payload: savedForm });
     dispatch({ type: "ADD_TOAST", payload: { type: "success", message: "Paramètres enregistrés ✓" } });
   };
@@ -467,6 +477,7 @@ const Settings = () => {
 
   const sections = [
     { id: "station", label: "Station", icon: Monitor },
+    { id: "magasins", label: "Magasins", icon: Store },
     { id: "profile", label: "Mon Profil", icon: User },
     { id: "fuel", label: "Prix Carburants", icon: Fuel },
     { id: "gauge", label: "Barèmes de Jauge", icon: TableIcon },
@@ -644,6 +655,13 @@ const Settings = () => {
                         </div>
                       </div>
                     </div>
+                  </motion.div>
+                )}
+
+                {/* ── MAGASINS : créer / nommer le second magasin ── */}
+                {activeSection === "magasins" && (
+                  <motion.div key="magasins" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                    <MagasinsSettings onSaved={patch => setForm(f => ({ ...f, ...patch }))} />
                   </motion.div>
                 )}
 

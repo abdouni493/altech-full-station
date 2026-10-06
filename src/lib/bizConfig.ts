@@ -10,7 +10,28 @@
  * ──────────────────────────────────────────────────────────────────────────────
  */
 
-export type ModuleKey = 'restaurant' | 'cafeteria' | 'lavage';
+/**
+ * `lavage`   = le PREMIER magasin (clé historique conservée pour ne jamais
+ *              réécrire les données déjà enregistrées) ;
+ * `magasin2` = le SECOND magasin, créé depuis Paramètres → Magasins. Il porte
+ *              exactement les mêmes interfaces que le premier, avec son propre
+ *              stock, ses propres ventes, sa propre caisse — tout est séparé.
+ */
+export type ModuleKey = 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
+
+/** Every part of the biz store, in sidebar order. */
+export const MODULE_KEYS: ModuleKey[] = ['restaurant', 'cafeteria', 'lavage', 'magasin2'];
+
+/** The parts that are a « Magasin » (shop): the first one and the second one. */
+export const MAGASIN_KEYS: ModuleKey[] = ['lavage', 'magasin2'];
+
+/** `true` for a magasin part (first or second). */
+export const isMagasinKey = (key: string | undefined | null): key is ModuleKey =>
+  key === 'lavage' || key === 'magasin2';
+
+/** `true` for any known module key. */
+export const isModuleKey = (key: string | undefined | null): key is ModuleKey =>
+  !!key && (MODULE_KEYS as string[]).includes(key);
 
 /** Keys that existed in older saved states and are migrated away on load. */
 export type LegacyModuleKey = 'magasin';
@@ -107,7 +128,54 @@ export interface BizProduct {
    * ait à connaître une seule référence.
    */
   cars?: BizProductCar[];
+  /**
+   * ─── CONSIGNE : GESTION « VIDE / PLEIN » (bouteilles de gaz…) ─────────────
+   * Le produit est un CONTENANT qui se vend plein et revient vide. Convention
+   * appliquée PARTOUT (magasin, armoires, brigades) :
+   *   • `currentQty` = nombre TOTAL de contenants détenus ;
+   *   • `emptyQty`   = combien parmi eux sont VIDES ;
+   *   • pleins       = total − vides.
+   * Le total ne bouge donc pas quand une bouteille change d'état.
+   */
+  consigneActive?: boolean;
+  /** Parmi les `currentQty` unités du magasin, combien sont VIDES. */
+  emptyQty?: number;
+  /** Prix payé pour REMPLIR une bouteille vide (achat « remplissage »). */
+  fillPrice?: number;
+  /** Prix payé pour acheter une bouteille VIDE (achat « bouteilles vides »). */
+  emptyPrice?: number;
   createdAt: string;
+}
+
+/**
+ * Nature d'un achat sur un produit consigné :
+ *  • `REMPLISSAGE` — des bouteilles VIDES repartent PLEINES (total inchangé, −vides) ;
+ *  • `VIDE`        — achat de contenants vides (le parc grandit : +total, +vides).
+ */
+export type ConsigneMode = 'VIDE' | 'REMPLISSAGE';
+
+/** État d'un contenant transféré / manipulé (produit consigné). */
+export type ConsigneState = 'VIDE' | 'PLEIN';
+
+/** Le produit est-il géré en vide / plein ? */
+export const isConsigneProduct = (p?: Pick<BizProduct, 'consigneActive'> | null): boolean => !!p?.consigneActive;
+
+/** Répartition du stock MAGASIN d'un produit : total, vides, pleins. */
+export function productStockSplit(p: Pick<BizProduct, 'currentQty' | 'emptyQty' | 'consigneActive'>) {
+  const total = Number(p.currentQty) || 0;
+  const empty = p.consigneActive ? (Number(p.emptyQty) || 0) : 0;
+  return { total, empty, full: total - empty };
+}
+
+/**
+ * Effet d'un ACHAT sur le stock d'un produit : variation du total et des vides.
+ * Remplissage → les vides deviennent pleines ; bouteilles vides → +total, +vides ;
+ * achat ordinaire → +total.
+ */
+export function consignePurchaseDelta(qty: number, mode?: ConsigneMode | null): { total: number; empty: number } {
+  if (mode === 'REMPLISSAGE') return { total: 0, empty: -qty };
+  if (mode === 'VIDE') return { total: qty, empty: qty };
+  return { total: qty, empty: 0 };
 }
 
 /** Un produit ne s'affiche au point de vente que s'il n'est pas une matière première. */
@@ -305,6 +373,14 @@ export interface BizLineItem {
   resultStockQty?: number;
   /** Coût moyen du produit juste après cette réception. */
   resultAvgCost?: number;
+  /**
+   * Achat d'un produit CONSIGNÉ (bouteilles de gaz) :
+   *  • `REMPLISSAGE` — des bouteilles VIDES du magasin repartent PLEINES
+   *    (prix de remplissage ; le nombre total de bouteilles ne change pas) ;
+   *  • `VIDE` — achat de bouteilles vides (prix bouteille vide ; +total, +vides).
+   * Absent ⇒ achat ordinaire.
+   */
+  consigneMode?: ConsigneMode;
 }
 
 export interface BizPurchase {
@@ -1269,7 +1345,58 @@ export const MODULES: Record<ModuleKey, ModuleConfig> = {
     hasComptoir: false,
     isService: false,
   },
+  // Second magasin — mêmes interfaces que le premier, données séparées.
+  magasin2: {
+    key: 'magasin2',
+    label: 'Magasin 2',
+    short: 'Magasin 2',
+    emoji: '🏬',
+    base: '/magasin2',
+    productWord: 'Produit',
+    hasProduction: false,
+    hasComptoir: false,
+    isService: false,
+  },
 };
+
+// ─── Magasins : noms choisis par l'utilisateur + second magasin actif ? ───────
+/**
+ * Réglages des magasins, posés depuis Paramètres → Magasins et lus au démarrage
+ * (table `station_settings`). Les libellés de `MODULES` sont mis à jour sur
+ * place : chaque écran qui lit `MODULES[key].label` affiche donc le nom choisi
+ * sans rien changer d'autre.
+ */
+export interface MagasinSettings {
+  magasin1Name?: string;
+  magasin2Name?: string;
+  magasin2Enabled?: boolean;
+}
+
+let magasin2Enabled = false;
+
+/** Applique les noms des magasins et l'activation du second. Idempotent. */
+export function applyMagasinSettings(s: MagasinSettings | null | undefined): void {
+  const n1 = (s?.magasin1Name || '').trim() || 'Magasin';
+  const n2 = (s?.magasin2Name || '').trim() || 'Magasin 2';
+  MODULES.lavage.label = n1;
+  MODULES.lavage.short = n1;
+  MODULES.magasin2.label = n2;
+  MODULES.magasin2.short = n2;
+  magasin2Enabled = !!s?.magasin2Enabled;
+}
+
+/** Le second magasin a-t-il été créé ? */
+export const isMagasin2Enabled = (): boolean => magasin2Enabled;
+
+/** Les parties réellement utilisées : le second magasin n'y figure qu'une fois créé. */
+export function activeModuleKeys(): ModuleKey[] {
+  return MODULE_KEYS.filter(k => k !== 'magasin2' || magasin2Enabled);
+}
+
+/** Les magasins réellement utilisés (le premier, puis le second s'il existe). */
+export function activeMagasinKeys(): ModuleKey[] {
+  return MAGASIN_KEYS.filter(k => k !== 'magasin2' || magasin2Enabled);
+}
 
 // Interfaces list shown in the worker "permissions" editor.
 export const MODULE_INTERFACES: { id: string; label: string }[] = [

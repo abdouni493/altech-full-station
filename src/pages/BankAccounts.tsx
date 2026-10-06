@@ -20,6 +20,7 @@ import {
   accountLabelOf, bankBalanceOf, caisseBalanceOf, partOfCashAccount,
 } from '../store/AppContext';
 import { repairBrigadeBankLines } from '../lib/brigadeBankLines';
+import { isMagasin2Enabled } from '../lib/bizConfig';
 import {
   PageHeader, StatCard, Badge, Modal, Field, Input, Textarea, Select, Confirm,
   EmptyState, CardGrid, GlassCard, RowActions, ActionBtn, Table, ViewToggle,
@@ -375,7 +376,9 @@ function TransferModal({
 }) {
   const others = accounts.filter(a => a.id !== from.id);
   // The money can also go straight to the caisse of one activity.
-  const cashTargets = [CAISSE_ID, ...Object.values(CAISSE_PART_ID)];
+  // (le coffre du second magasin n'est proposé qu'une fois ce magasin créé)
+  const cashTargets = [CAISSE_ID, ...Object.entries(CAISSE_PART_ID)
+    .filter(([k]) => k !== 'magasin2' || isMagasin2Enabled()).map(([, id]) => id)];
   const [target, setTarget] = useState<string>(CAISSE_ID);
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(todayISO());

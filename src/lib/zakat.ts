@@ -60,6 +60,8 @@ export interface ZakatIncludes {
   stockRestaurant: boolean;
   stockCafeteria: boolean;
   stockLavage: boolean;
+  /** Stock du second magasin (absent des réglages enregistrés avant lui ⇒ inclus). */
+  stockMagasin2?: boolean;
   creances: boolean;
   dettesFournisseurs: boolean;
 }
@@ -112,6 +114,7 @@ export const DEFAULT_ZAKAT_CONFIG: ZakatConfig = {
     stockRestaurant: true,
     stockCafeteria: true,
     stockLavage: true,
+    stockMagasin2: true,
     creances: true,
     dettesFournisseurs: true,
   },
@@ -147,7 +150,7 @@ export interface ZakatInputs {
   caisse: number;
   banques: number;
   /** Valeur du stock par partie, dans les deux valorisations. */
-  stock: { key: 'carburant' | 'restaurant' | 'cafeteria' | 'lavage'; label: string; emoji: string; buyValue: number; sellValue: number }[];
+  stock: { key: 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2'; label: string; emoji: string; buyValue: number; sellValue: number }[];
   creances: number;
   dettesFournisseurs: number;
 }
@@ -255,7 +258,7 @@ export function computeZakat(inputs: ZakatInputs, cfg: ZakatConfig, now = new Da
   const doubtful = Math.min(100, Math.max(0, num(cfg.doubtfulPct)));
   const creancesNettes = num(inputs.creances) * (1 - doubtful / 100);
 
-  const stockPart = (key: 'carburant' | 'restaurant' | 'cafeteria' | 'lavage', on: boolean): ZakatComponent => {
+  const stockPart = (key: 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2', on: boolean): ZakatComponent => {
     const s = inputs.stock.find(x => x.key === key);
     const gross = s ? stockValueOf(s) : 0;
     return {
@@ -281,6 +284,8 @@ export function computeZakat(inputs: ZakatInputs, cfg: ZakatConfig, now = new Da
     stockPart('restaurant', inc.stockRestaurant !== false),
     stockPart('cafeteria', inc.stockCafeteria),
     stockPart('lavage', inc.stockLavage),
+    // Le second magasin n'apparaît que s'il existe (son stock est alors fourni).
+    ...(inputs.stock.some(x => x.key === 'magasin2') ? [stockPart('magasin2', inc.stockMagasin2 !== false)] : []),
     {
       key: 'creances', label: 'Créances clients récupérables',
       hint: doubtful > 0

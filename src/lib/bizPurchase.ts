@@ -16,7 +16,7 @@
  * prochain achat — exactement comme le reste de l'application.
  * ──────────────────────────────────────────────────────────────────────────────
  */
-import { BizProduct, BizPurchase, formatQty, roundQty } from './bizConfig';
+import { BizProduct, BizPurchase, formatQty, roundQty, consignePurchaseDelta } from './bizConfig';
 import { effectiveAvgCost, lineSnapshot, reverseAverageCost, usesAverageCost } from './bizAverageCost';
 
 /** Ce qu'une ligne d'achat va rendre au stock quand la facture est annulée. */
@@ -26,6 +26,11 @@ export interface PurchaseStockDelta {
   unit?: string;
   /** Quantité reçue par cet achat — celle qui sera reprise. */
   qty: number;
+  /**
+   * Bouteilles VIDES apportées (+) ou consommées (−, remplissage) par cet
+   * achat — rendues à l'annulation. 0 pour un produit ordinaire.
+   */
+  empty: number;
   /** Reste en stock avant l'annulation. */
   before: number;
   /** Reste en stock après l'annulation. */
@@ -48,13 +53,18 @@ export function purchaseStockDeltas(
   const acc = new Map<string, PurchaseStockDelta>();
 
   for (const it of purchase.items || []) {
-    const qty = Number(it.qty) || 0;
-    if (qty <= 0) continue;
+    const raw = Number(it.qty) || 0;
+    if (raw <= 0) continue;
+    // Bouteilles de gaz : un REMPLISSAGE ne fait entrer aucune bouteille (il en
+    // rend des vides pleines), un achat de VIDES en fait entrer de vides.
+    const effect = consignePurchaseDelta(raw, it.consigneMode);
+    const qty = effect.total;
     const prod = byId.get(it.productId) || byName.get(it.productName);
     const key = prod?.id || it.productId || it.productName;
     const existing = acc.get(key);
     if (existing) {
       existing.qty = roundQty(existing.qty + qty);
+      existing.empty = roundQty(existing.empty + effect.empty);
       existing.after = roundQty(existing.before - existing.qty);
       continue;
     }
@@ -64,6 +74,7 @@ export function purchaseStockDeltas(
       productName: prod?.name || it.productName,
       unit: prod?.unit,
       qty: roundQty(qty),
+      empty: roundQty(effect.empty),
       before,
       after: roundQty(before - qty),
       missing: !prod,
@@ -80,6 +91,9 @@ export function describePurchaseRollback(deltas: PurchaseStockDelta[]): string {
   const lines = deltas
     .filter(d => !d.missing)
     .map(d => {
+      if (!d.qty && d.empty) {
+        return `• ${d.productName} : ${formatQty(-d.empty)} bouteille(s) redeviennent vides (remplissage annulé)`;
+      }
       const arrow = `${formatQty(d.before)} → ${formatQty(d.after)}${d.unit ? ` ${d.unit}` : ''}`;
       const warn = d.after < 0 ? '  ⚠ stock négatif (marchandise déjà vendue)' : '';
       return `• ${d.productName} : −${formatQty(d.qty)}${d.unit ? ` ${d.unit}` : ''}   (${arrow})${warn}`;
@@ -142,6 +156,8 @@ export function deleteBizPurchase(
       // descendre sous zéro, contrairement au reste en stock.
       principalQty: roundQty(Math.max(0, prod.principalQty - d.qty)),
       currentQty: roundQty(prod.currentQty - d.qty),
+      // Bouteilles : on rend aussi l'effet vide / plein de l'achat annulé.
+      ...(d.empty ? { emptyQty: roundQty(Math.max(0, (prod.emptyQty || 0) - d.empty)) } : {}),
       ...(reversed
         ? {
           averageCost: reversed.avgCost,

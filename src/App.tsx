@@ -37,11 +37,13 @@ import CaisseGenerale from "./pages/CaisseGenerale";
 import BankAccounts from "./pages/BankAccounts";
 import Feedbacks from "./pages/Feedbacks";
 import ClientFeedback from "./pages/ClientFeedback";
+import Armoires from "./pages/Armoires";
+import Transfers from "./pages/Transfers";
 import { FeedbackProvider } from "./store/FeedbackContext";
 
 // ─── Business modules (Cafétéria / Magasin) ───────────────────────
 import { BizProvider } from "./store/BizContext";
-import { MODULES, ModuleKey } from "./lib/bizConfig";
+import { MODULES, ModuleKey, isMagasin2Enabled } from "./lib/bizConfig";
 import ModuleStock from "./pages/modules/ModuleStock";
 import ModuleInventaire from "./pages/modules/ModuleInventaire";
 import ModulePurchases from "./pages/modules/ModulePurchases";
@@ -131,6 +133,8 @@ const ROUTE_TO_MODULE: Record<string, string> = {
   "/caisse-generale":  "Caisse Générale",
   "/bank-accounts":    "Comptes Bancaires",
   "/feedbacks":        "Retours Clients",
+  "/armoires":         "Armoires",
+  "/transferts":       "Transferts",
 };
 
 // ─── ProtectedRoute Component ─────────────────────────────────────────────────
@@ -209,7 +213,7 @@ function ModuleRouteGuard({
   moduleKey, iface, element,
 }: { moduleKey: string; iface: string; element: React.ReactElement }): React.ReactElement {
   const navigate = useNavigate();
-  const { currentUserRole, currentModuleWorker } = useAppState();
+  const { currentUserRole, currentModuleWorker, isLoading } = useAppState();
   const dispatch = useAppDispatch();
 
   const allowed =
@@ -230,6 +234,11 @@ function ModuleRouteGuard({
     navigate('/dashboard', { replace: true });
   }, [pending, allowed, dispatch, navigate]);
 
+  // Le second magasin n'existe qu'une fois créé (Paramètres → Magasins).
+  // Vérifié APRÈS les hooks : leur nombre ne doit jamais varier d'un rendu à l'autre.
+  if (moduleKey === 'magasin2' && !isLoading && !isMagasin2Enabled()) {
+    return <Navigate to="/dashboard" replace />;
+  }
   if (pending) return <></>;
   if (!allowed) return <Navigate to="/dashboard" replace />;
   return element;
@@ -520,6 +529,10 @@ function AppRoutes({ onLogout }: { onLogout: () => void }) {
         {/* Finance — trésorerie */}
         <Route path="/caisse-generale"  element={<ProtectedRoute element={<CaisseGenerale />} moduleId="Caisse Générale" />} />
         <Route path="/bank-accounts"    element={<ProtectedRoute element={<BankAccounts />} moduleId="Comptes Bancaires" />} />
+
+        {/* Armoires de la piste & transferts depuis les magasins */}
+        <Route path="/armoires"         element={<ProtectedRoute element={<Armoires />} moduleId="Armoires" />} />
+        <Route path="/transferts"       element={<ProtectedRoute element={<Transfers />} moduleId="Transferts" />} />
 
         {/* Retours clients — partie Carburant (page publique : /client) */}
         <Route path="/feedbacks"        element={<ProtectedRoute element={<Feedbacks />} moduleId="Retours Clients" />} />

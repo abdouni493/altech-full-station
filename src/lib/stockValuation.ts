@@ -15,7 +15,7 @@
  * rapportera si tout part au prix affiché). Leur écart est la marge latente.
  * ──────────────────────────────────────────────────────────────────────────────
  */
-import { BizState, ModuleKey, MODULES, ModuleState } from './bizConfig';
+import { BizState, ModuleKey, MODULES, ModuleState, isMagasin2Enabled } from './bizConfig';
 
 /** Une ligne de stock valorisée. */
 export interface StockLine {
@@ -125,7 +125,7 @@ const partOf = (key: string, label: string, emoji: string, sections: StockSectio
 };
 
 // ─── Carburant : cuves + magasin de la station ───────────────────────────────
-export function computeCarburantStock(app: any): StockPart {
+export function computeCarburantStock(app: any, biz?: BizState): StockPart {
   const settings = app?.settings || {};
   const buyPrices: Record<string, number> = settings.fuelBuyPrices || {};
   const sellPrices: Record<string, number> = settings.fuelPrices || {};
@@ -166,9 +166,49 @@ export function computeCarburantStock(app: any): StockPart {
     });
   });
 
+  // ── Armoires de la piste : produits transférés depuis les magasins ──
+  // Sortis du stock du magasin, ils ne doivent pas disparaître de la valeur du
+  // stock : ils sont valorisés ici, aux prix de leur fiche produit. Une
+  // bouteille de gaz VIDE ne vaut que son contenant (prix bouteille vide).
+  const findProduct = (id: string) => {
+    for (const k of ['lavage', 'magasin2'] as ModuleKey[]) {
+      const p = (biz?.[k]?.products || []).find(x => x.id === id);
+      if (p) return p;
+    }
+    return undefined;
+  };
+  const armoireName = (id: string) => (app?.armoires || []).find((a: any) => a.id === id)?.name || 'Armoire';
+  const armoires: StockLine[] = (app?.armoireStock || [])
+    .filter((st: any) => num(st.quantity) !== 0)
+    .map((st: any) => {
+      const p = findProduct(st.productId);
+      const qty = num(st.quantity);
+      const empty = p?.consigneActive ? num(st.emptyQuantity) : 0;
+      const full = qty - empty;
+      const unitBuy = num(p?.purchasePrice);
+      const unitEmpty = num(p?.emptyPrice);
+      // Prix moyen de la ligne : pleines au prix d'achat, vides au prix du contenant.
+      const buyPrice = qty !== 0 ? (full * unitBuy + empty * unitEmpty) / qty : unitBuy;
+      const sellPrice = qty !== 0 ? (full * num(p?.salePrice) + empty * unitEmpty) / qty : num(p?.salePrice);
+      return lineOf({
+        id: `arm-${st.id}`,
+        name: `${p?.name || 'Produit'} — ${armoireName(st.armoireId)}`,
+        code: p?.barcode,
+        category: 'Armoire',
+        unit: p?.unit,
+        qty,
+        buyPrice,
+        sellPrice,
+        low: false,
+        minQty: 0,
+        negative: qty < 0,
+      });
+    });
+
   return partOf('carburant', 'Carburant', '⛽', [
     sectionOf('cuves', 'Carburant en cuve', 'Litres restants × prix d\'achat / prix à la pompe', cuves, 'L'),
     sectionOf('boutique', 'Magasin de la station', 'Produits boutique du catalogue carburant', boutique),
+    ...(armoires.length ? [sectionOf('armoires', 'Armoires de la piste', 'Produits transférés depuis les magasins', armoires)] : []),
   ]);
 }
 
@@ -216,10 +256,12 @@ export function computeModuleStock(st: ModuleState, key: ModuleKey): StockPart {
 // ─── Toute la station ────────────────────────────────────────────────────────
 export function computeStockValuation(app: any, biz: BizState): StockValuation {
   const parts = [
-    computeCarburantStock(app),
+    computeCarburantStock(app, biz),
     computeModuleStock(biz.restaurant, 'restaurant'),
     computeModuleStock(biz.cafeteria, 'cafeteria'),
     computeModuleStock(biz.lavage, 'lavage'),
+    // Le second magasin, une fois créé, a son propre stock.
+    ...(isMagasin2Enabled() && biz.magasin2 ? [computeModuleStock(biz.magasin2, 'magasin2')] : []),
   ];
   const buyValue = parts.reduce((s, p) => s + p.buyValue, 0);
   const sellValue = parts.reduce((s, p) => s + p.sellValue, 0);

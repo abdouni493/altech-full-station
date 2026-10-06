@@ -58,6 +58,7 @@ import {
 import { useBizAll } from "@/src/store/BizContext";
 import { carburantCashBalance } from "@/src/lib/carburantSales";
 import { moduleCaisseBalance } from "@/src/lib/bizReporting";
+import { MODULES, isMagasin2Enabled } from "@/src/lib/bizConfig";
 import { toast } from "react-hot-toast";
 
 /** Instrument used to pay — independent of the account the money leaves. */
@@ -67,14 +68,20 @@ const PAYMENT_MODES = ["Espèces", "Virement", "Chèque", "TPE", "Prélèvement"
  * Les activités auxquelles une dépense peut être imputée. Le choix n'est pas
  * un classement : il décide de QUELLE caisse sortent les espèces.
  */
-const PARTS: { key: TreasuryPart; label: string; short: string; tone: string }[] = [
+const ALL_PARTS: { key: TreasuryPart; label: string; short: string; tone: string }[] = [
   { key: 'carburant', label: 'Carburant', short: '⛽ Carburant', tone: '#003087' },
   { key: 'restaurant', label: 'Restaurant', short: '🍽️ Restaurant', tone: '#be123c' },
   { key: 'cafeteria', label: 'Cafétéria', short: '☕ Cafétéria', tone: '#b45309' },
-  { key: 'lavage', label: 'Magasin', short: '🛒 Magasin', tone: '#0e7490' },
+  // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
+  { key: 'lavage', get label() { return MODULES.lavage.label; }, get short() { return `🛒 ${MODULES.lavage.label}`; }, tone: '#0e7490' },
+  { key: 'magasin2', get label() { return MODULES.magasin2.label; }, get short() { return `🏬 ${MODULES.magasin2.label}`; }, tone: '#7c3aed' },
   { key: 'systeme', label: 'Finance (caisse générale)', short: '🏛️ Finance', tone: '#4c1d95' },
 ];
-const PART_LABEL: Record<string, string> = Object.fromEntries(PARTS.map(p => [p.key, p.label]));
+/** Le second magasin n'est proposé qu'une fois créé. */
+const partsList = () => ALL_PARTS.filter(p => p.key !== 'magasin2' || isMagasin2Enabled());
+const PART_LABEL: Record<string, string> = new Proxy({} as Record<string, string>, {
+  get: (_t, key: string) => ALL_PARTS.find(p => p.key === key)?.label,
+});
 
 const Expenses = () => {
   const { t } = useTranslation();
@@ -101,13 +108,14 @@ const Expenses = () => {
   const partCash = useMemo<Record<string, number>>(() => {
     // Une partie non encore chargée n'a pas de caisse : mieux vaut 0 qu'un écran
     // blanc, la saisie de la dépense n'en dépend pas.
-    const ofModule = (key: 'restaurant' | 'cafeteria' | 'lavage') =>
+    const ofModule = (key: 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2') =>
       biz?.[key] ? moduleCaisseBalance(biz[key], key, treasuryTransactions, expenses) : 0;
     return {
       carburant: carburantCashBalance(state),
       restaurant: ofModule('restaurant'),
       cafeteria: ofModule('cafeteria'),
       lavage: ofModule('lavage'),
+      magasin2: ofModule('magasin2'),
       systeme: caisseBalanceOf(treasuryTransactions),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,7 +221,7 @@ const Expenses = () => {
    * Ce que chaque activité a dépensé sur la période filtrée, et ce qu'elle a
    * réellement sorti de sa caisse. Le total seul ne disait pas qui payait.
    */
-  const byPart = useMemo(() => PARTS.map(p => {
+  const byPart = useMemo(() => partsList().map(p => {
     const rows = scopedExpenses.filter(e => expensePartOf(e) === p.key);
     return {
       ...p,
@@ -644,7 +652,7 @@ const Expenses = () => {
                   className="input-field h-14 w-44 bg-slate-50 border-none rounded-2xl text-[10px] font-black uppercase tracking-widest outline-none shadow-inner px-6 text-blue-900 italic"
                 >
                   <option value="all">Toutes les parties</option>
-                  {PARTS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                  {partsList().map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
                 </select>
               </div>
 
@@ -705,7 +713,7 @@ const Expenses = () => {
                                 <span className="text-[9px] font-black uppercase px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">{expense.category}</span>
                               </td>
                               <td className="px-4 py-3">
-                                <span className="text-[9px] font-black uppercase text-slate-500">{PARTS.find(p => p.key === part)?.short || 'Carburant'}</span>
+                                <span className="text-[9px] font-black uppercase text-slate-500">{ALL_PARTS.find(p => p.key === part)?.short || 'Carburant'}</span>
                               </td>
                               <td className="px-4 py-3">
                                 <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
@@ -767,7 +775,7 @@ const Expenses = () => {
                         {expense.category}
                       </span>
                       <span className="text-[8px] font-black uppercase px-2.5 py-1 rounded-full italic shadow-sm leading-none border inline-block bg-slate-50 text-slate-600 border-slate-200">
-                        {PARTS.find(p => p.key === expensePartOf(expense))?.short || 'Carburant'}
+                        {ALL_PARTS.find(p => p.key === expensePartOf(expense))?.short || 'Carburant'}
                       </span>
                     </div>
 
@@ -1136,7 +1144,7 @@ const Expenses = () => {
                      <div className="space-y-1.5">
                         <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">Partie concernée (qui paie)</label>
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                          {PARTS.map(p => {
+                          {partsList().map(p => {
                             const on = (formData.part || 'carburant') === p.key;
                             return (
                               <button

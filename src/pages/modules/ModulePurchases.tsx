@@ -7,7 +7,7 @@ import { toast } from 'react-hot-toast';
 import { newId, matchesSearch } from '@/src/lib/utils';
 import {
   ModuleKey, MODULES, BizPurchase, BizLineItem, BizProduct, detailPrice, formatQty,
-  productRefLabel, productCarLabel,
+  productRefLabel, productCarLabel, isMagasinKey, consignePurchaseDelta,
 } from '@/src/lib/bizConfig';
 import { deleteBizPurchase, describePurchaseRollback, purchaseStockDeltas, totalRolledBack } from '@/src/lib/bizPurchase';
 import {
@@ -245,7 +245,14 @@ export default function ModulePurchases({ moduleKey }: { moduleKey: ModuleKey })
             </>}>
               {viewing.items.map((it, i) => (
                 <tr key={i}>
-                  <td className="table-cell">{it.productName}</td>
+                  <td className="table-cell">
+                    {it.productName}
+                    {it.consigneMode && (
+                      <span className={`ml-2 badge ${it.consigneMode === 'REMPLISSAGE' ? 'badge-info' : 'badge-warning'}`}>
+                        {it.consigneMode === 'REMPLISSAGE' ? 'Remplissage' : 'Bouteilles vides'}
+                      </span>
+                    )}
+                  </td>
                   <td className="table-cell tabular-nums text-right">{it.qty}</td>
                   <td className="table-cell tabular-nums text-right">{money(it.unitPrice)}</td>
                   <td className="table-cell tabular-nums text-right">{it.salePrice !== undefined ? money(it.salePrice) : '—'}</td>
@@ -329,7 +336,8 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
   const { products, suppliers } = biz.state;
   const isEdit = !!initial;
   /** Pièces détachées : la partie Magasin est la seule concernée. */
-  const isLavage = moduleKey === 'lavage';
+  // Premier OU second magasin : mêmes interfaces (références, véhicules…).
+  const isLavage = isMagasinKey(moduleKey);
 
   const [items, setItems] = useState<BizLineItem[]>(initial?.items || []);
   /**
@@ -380,10 +388,14 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
     // choisir et dont on doit saisir quantité et prix. Ajouté en queue, il
     // partait sous la ligne de flottaison et il fallait redescendre le
     // formulaire à chaque article d'un bon de livraison un peu long.
+    // Bouteille de gaz : on part sur le REMPLISSAGE, au prix de remplissage de
+    // la fiche — le cas courant (le camion passe recharger les bouteilles).
+    const consigned = isMagasinKey(moduleKey) && !!p.consigneActive;
     setItems(prev => [{
       productId: p.id, productName: p.name,
       qty: 1,
-      unitPrice: p.purchasePrice,
+      unitPrice: consigned ? (p.fillPrice ?? p.purchasePrice) : p.purchasePrice,
+      consigneMode: consigned ? 'REMPLISSAGE' : undefined,
       salePrice: p.salePrice,
       minQty: p.minQty,
       hasExpiration: p.hasExpiration, expirationDate: p.expirationDate,
@@ -419,12 +431,22 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
   ) => {
     const prod = products.find(p => p.id === it.productId);
     if (!prod) return;
+    // Bouteilles de gaz : remplissage → les vides redeviennent pleines (total
+    // inchangé) ; bouteilles vides → le parc grandit (+total, +vides).
+    const consigne = it.consigneMode ? consignePurchaseDelta(it.qty, it.consigneMode) : null;
+    const addTotal = consigne ? consigne.total : it.qty;
     biz.update('products', {
       ...prod,
-      principalQty: addStock ? prod.principalQty + it.qty : prod.principalQty,
-      currentQty: addStock ? prod.currentQty + it.qty : prod.currentQty,
+      principalQty: addStock ? prod.principalQty + addTotal : prod.principalQty,
+      currentQty: addStock ? prod.currentQty + addTotal : prod.currentQty,
+      ...(consigne && addStock ? { emptyQty: Math.max(0, (prod.emptyQty || 0) + consigne.empty) } : {}),
+      // Les deux prix de la bouteille restent sur la fiche, re-servis au prochain achat.
+      ...(it.consigneMode === 'REMPLISSAGE' ? { fillPrice: it.unitPrice } : {}),
+      ...(it.consigneMode === 'VIDE' ? { emptyPrice: it.unitPrice } : {}),
       minQty: it.minQty ?? prod.minQty,
-      purchasePrice: snap ? snap.resultAvgCost : it.unitPrice,
+      // Le coût d'une bouteille vendue, c'est son remplissage : un achat de
+      // contenants vides ne change pas le prix de revient du produit.
+      purchasePrice: it.consigneMode === 'VIDE' ? prod.purchasePrice : (snap ? snap.resultAvgCost : it.unitPrice),
       ...(snap ? { averageCost: snap.resultAvgCost, lastPurchasePrice: it.unitPrice } : {}),
       salePrice: it.salePrice ?? prod.salePrice,
       hasExpiration: it.hasExpiration ?? prod.hasExpiration,
@@ -449,7 +471,8 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
     const savedItems = applyAvg
       ? items.map(it => {
         const prod = products.find(p => p.id === it.productId);
-        if (!prod) return it;
+        // Une bouteille remplie ou achetée vide ne bouge pas le coût moyen.
+        if (!prod || it.consigneMode) return it;
         return stampLine(it, snapshotFor(prod, it.qty, it.unitPrice));
       })
       : items;
@@ -675,8 +698,10 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
                             )}
                           </p>
                           <p className="text-[11px] text-slate-400 truncate">
-                            Stock actuel {prod?.currentQty ?? 0} {prod?.unit || 'unité'}
-                            {prod ? ` → ${(prod.currentQty + (Number(it.qty) || 0)).toLocaleString('fr-FR')} après réception` : ''}
+                            {it.consigneMode === 'REMPLISSAGE'
+                              ? `Vides ${prod?.emptyQty ?? 0} → ${Math.max(0, (prod?.emptyQty || 0) - (Number(it.qty) || 0)).toLocaleString('fr-FR')} après remplissage (total inchangé : ${prod?.currentQty ?? 0})`
+                              : <>Stock actuel {prod?.currentQty ?? 0} {prod?.unit || 'unité'}
+                                {prod ? ` → ${(prod.currentQty + (Number(it.qty) || 0)).toLocaleString('fr-FR')} après réception` : ''}</>}
                           </p>
                         </div>
                         <div className="text-right shrink-0 hidden sm:block">
@@ -687,14 +712,38 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
                           className="w-9 h-9 rounded-xl text-red-500 hover:bg-red-50 flex items-center justify-center shrink-0"><X className="w-4 h-4" /></button>
                       </div>
 
+                      {/* Bouteille de gaz : que paie-t-on ? Le REMPLISSAGE de bouteilles
+                          vides déjà au magasin (elles redeviennent pleines) ou des
+                          bouteilles VIDES en plus. Le prix suit le mode choisi. */}
+                      {it.consigneMode && (
+                        <div className="px-3 sm:px-4 pt-3 grid grid-cols-2 gap-2">
+                          {([
+                            { mode: 'REMPLISSAGE' as const, label: '🔵 Remplissage', hint: `Des bouteilles VIDES redeviennent PLEINES · ${prod?.emptyQty ?? 0} vide(s) au magasin` },
+                            { mode: 'VIDE' as const, label: '⚪ Bouteilles vides', hint: 'Achat de contenants vides (parc en plus)' },
+                          ]).map(o => (
+                            <button key={o.mode} type="button"
+                              onClick={() => updItem(it.productId, {
+                                consigneMode: o.mode,
+                                unitPrice: o.mode === 'REMPLISSAGE'
+                                  ? (prod?.fillPrice ?? prod?.purchasePrice ?? it.unitPrice)
+                                  : (prod?.emptyPrice ?? it.unitPrice),
+                              })}
+                              className={`p-2.5 rounded-xl border-2 text-left transition-all ${it.consigneMode === o.mode ? 'border-amber-500 bg-amber-50' : 'border-slate-200 bg-white hover:border-amber-200'}`}>
+                              <span className="block text-[11px] font-black uppercase tracking-wider text-slate-800">{o.label}</span>
+                              <span className="block text-[10px] font-bold text-slate-400">{o.hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Quantité + prix d'achat + prix de vente + seuil */}
                       <div className="p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4">
-                        <Field label="Quantité reçue">
+                        <Field label={it.consigneMode === 'REMPLISSAGE' ? 'Bouteilles remplies' : it.consigneMode === 'VIDE' ? 'Bouteilles vides reçues' : 'Quantité reçue'}>
                           <Input type="number" step="0.01" min={0} inputMode="decimal" value={it.qty}
                             onChange={e => updItem(it.productId, { qty: Number(e.target.value) })}
                             className="text-right" />
                         </Field>
-                        <Field label="Prix d'achat (DA)">
+                        <Field label={it.consigneMode === 'REMPLISSAGE' ? 'Prix de remplissage (DA)' : it.consigneMode === 'VIDE' ? 'Prix bouteille vide (DA)' : "Prix d'achat (DA)"}>
                           <Input type="number" step="0.01" min={0} inputMode="decimal" value={it.unitPrice}
                             onChange={e => updItem(it.productId, { unitPrice: Number(e.target.value) })}
                             className="text-right" />

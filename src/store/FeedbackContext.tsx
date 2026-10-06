@@ -37,7 +37,7 @@ export interface FeedbackContextValue {
   remove: (id: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
-const EMPTY_COUNTS: Record<FeedbackPart, number> = { fuel: 0, restaurant: 0, cafeteria: 0, lavage: 0 };
+const EMPTY_COUNTS: Record<FeedbackPart, number> = { fuel: 0, restaurant: 0, cafeteria: 0, lavage: 0, magasin2: 0 };
 
 const Ctx = createContext<FeedbackContextValue | null>(null);
 

@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, matchesSearch } from '@/src/lib/utils';
-import { ModuleKey, MODULES, BizLineItem, isReversedSale, formatQty } from '@/src/lib/bizConfig';
+import { ModuleKey, MODULES, BizLineItem, isReversedSale, formatQty, activeModuleKeys, isMagasin2Enabled } from '@/src/lib/bizConfig';
 import { applyRestock, describeRestock, restockPlan } from '@/src/lib/bizRestock';
 import { useBizAll, useBiz } from '@/src/store/BizContext';
 import { useAppState, useAppDispatch, CAISSE_ID } from '@/src/store/AppContext';
@@ -58,11 +58,18 @@ const SECTIONS: { id: ActiveKey; label: string; icon: React.ElementType; hint: s
   { id: 'carburant', label: 'Carburant', icon: Fuel, hint: 'Rapport détaillé' },
   { id: 'restaurant', label: 'Restaurant', icon: UtensilsCrossed, hint: 'Rapport détaillé' },
   { id: 'cafeteria', label: 'Cafétéria', icon: Coffee, hint: 'Rapport détaillé' },
-  { id: 'lavage', label: 'Magasin', icon: Store, hint: 'Rapport détaillé' },
+  { id: 'lavage', get label() { return MODULES.lavage.label; }, icon: Store, hint: 'Rapport détaillé' },
+  { id: 'magasin2', get label() { return MODULES.magasin2.label; }, icon: Store, hint: 'Rapport détaillé' },
 ];
 
+/** Les parties commerciales réellement utilisées (second magasin s'il existe). */
+const bizReportKeys = (): ModuleKey[] => activeModuleKeys();
+
+/** Les sections affichées : le second magasin n'apparaît qu'une fois créé. */
+const visibleSections = () => SECTIONS.filter(s => s.id !== 'magasin2' || isMagasin2Enabled());
+
 /** Sections that are a per-activity `PartReport` (the others have their own view). */
-const PART_SECTIONS: ActiveKey[] = ['carburant', 'restaurant', 'cafeteria', 'lavage'];
+const partSections = (): ActiveKey[] => ['carburant', ...bizReportKeys()];
 
 // ─── Card drill-downs ─────────────────────────────────────────────────────────
 /**
@@ -106,6 +113,7 @@ export default function GeneralReports() {
   const restaurantBiz = useBiz('restaurant');
   const cafeteriaBiz = useBiz('cafeteria');
   const lavageBiz = useBiz('lavage');
+  const magasin2Biz = useBiz('magasin2');
   const settings = app.settings;
   const globalFicheRef = useRef<HTMLDivElement>(null);
   const moduleFicheRef = useRef<HTMLDivElement>(null);
@@ -126,7 +134,7 @@ export default function GeneralReports() {
   /** Réglages de zakât — conservés sur ce poste d'une session à l'autre. */
   const [zakatConfig, setZakatConfig] = useState<ZakatConfig>(() => loadZakatConfig());
 
-  const reports: Record<'carburant' | 'restaurant' | 'cafeteria' | 'lavage', PartReport> = useMemo(() => ({
+  const reports: Record<'carburant' | ModuleKey, PartReport> = useMemo(() => ({
     carburant: computeCarburantReport(app, range.from, range.to),
     // Le grand livre est passé aux parties commerciales : sans lui, leur caisse
     // ignorait les virements partis de leur coffre vers la banque. Les dépenses
@@ -135,10 +143,12 @@ export default function GeneralReports() {
     restaurant: computeModuleReport(biz.restaurant, 'restaurant', range.from, range.to, app.treasuryTransactions, app.expenses),
     cafeteria: computeModuleReport(biz.cafeteria, 'cafeteria', range.from, range.to, app.treasuryTransactions, app.expenses),
     lavage: computeModuleReport(biz.lavage, 'lavage', range.from, range.to, app.treasuryTransactions, app.expenses),
+    // Second magasin : rapport à part, et consolidé avec les autres une fois créé.
+    magasin2: computeModuleReport(biz.magasin2, 'magasin2', range.from, range.to, app.treasuryTransactions, app.expenses),
   }), [biz, app, range]);
 
   const global: GlobalReport = useMemo(
-    () => consolidate([reports.carburant, reports.restaurant, reports.cafeteria, reports.lavage], range.from, range.to),
+    () => consolidate([reports.carburant, ...bizReportKeys().map(k => reports[k])], range.from, range.to),
     [reports, range],
   );
 
@@ -160,7 +170,8 @@ export default function GeneralReports() {
     summarizeInventaires(biz.restaurant, 'restaurant', MODULES.restaurant.label, MODULES.restaurant.emoji),
     summarizeInventaires(biz.cafeteria, 'cafeteria', MODULES.cafeteria.label, MODULES.cafeteria.emoji),
     summarizeInventaires(biz.lavage, 'lavage', MODULES.lavage.label, MODULES.lavage.emoji),
-  ], [biz]);
+    ...(isMagasin2Enabled() ? [summarizeInventaires(biz.magasin2, 'magasin2', MODULES.magasin2.label, MODULES.magasin2.emoji)] : []),
+  ], [biz, app.settings]);
   const inventaireLosses = useMemo(() => collectLosses(inventaireParts), [inventaireParts]);
   const inventaireLossTotal = useMemo(
     () => inventaireParts.reduce((s, p) => s + p.lossValue, 0), [inventaireParts]);
@@ -179,6 +190,7 @@ export default function GeneralReports() {
       computeModuleAnalytics(biz.restaurant, 'restaurant', range.from, range.to, g, app.expenses),
       computeModuleAnalytics(biz.cafeteria, 'cafeteria', range.from, range.to, g, app.expenses),
       computeModuleAnalytics(biz.lavage, 'lavage', range.from, range.to, g, app.expenses),
+      ...(isMagasin2Enabled() ? [computeModuleAnalytics(biz.magasin2, 'magasin2', range.from, range.to, g, app.expenses)] : []),
     ];
     return { parts, global: consolidateAnalytics(parts, range.from, range.to, g) };
   }, [app, biz, range, grain]);
@@ -188,7 +200,7 @@ export default function GeneralReports() {
     caisse: workingCapital.cashTotal,
     banques: workingCapital.bankTotal,
     stock: stockValuation.parts.map(p => ({
-      key: p.key as 'carburant' | 'restaurant' | 'cafeteria' | 'lavage',
+      key: p.key as 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2',
       label: p.label, emoji: p.emoji, buyValue: p.buyValue, sellValue: p.sellValue,
     })),
     creances: workingCapital.receivablesTotal,
@@ -259,7 +271,7 @@ export default function GeneralReports() {
   // the user can drill in and remove an entry (a sale, an expense, a product…);
   // derived rows (bénéfice net, alertes) are shown read-only.
   const cardDetails = useMemo<Record<CardKey, CardDetail>>(() => {
-    const bizOf = (k: ModuleKey) => (k === 'restaurant' ? restaurantBiz : k === 'cafeteria' ? cafeteriaBiz : lavageBiz);
+    const bizOf = (k: ModuleKey) => (k === 'restaurant' ? restaurantBiz : k === 'cafeteria' ? cafeteriaBiz : k === 'magasin2' ? magasin2Biz : lavageBiz);
     /**
      * Supprimer une dépense emporte la ligne de trésorerie qu'elle avait
      * écrite : sans elle, le compte débité resterait amputé d'un argent que
@@ -307,7 +319,7 @@ export default function GeneralReports() {
     // Supprimer une vente ou une intervention depuis ce rapport fait le MÊME
     // retour de marchandise que l'écran d'origine : les articles vendus et les
     // pièces posées reviennent en stock avant que la ligne ne disparaisse.
-    (['restaurant', 'cafeteria', 'lavage'] as const).forEach(k => reports[k].sales.forEach(s => {
+    bizReportKeys().forEach(k => reports[k].sales.forEach(s => {
       const isRep = s.kind !== 'Vente';
       const api = bizOf(k);
       const st = stateOf(k);
@@ -336,7 +348,7 @@ export default function GeneralReports() {
     // La marchandise est revenue en stock : ces ventes ne comptent plus dans le CA
     // ni dans les gains. On les liste à part pour que l'écart se lise noir sur blanc.
     const returnRows: DetailRow[] = [];
-    (['restaurant', 'cafeteria', 'lavage'] as const).forEach(k => reports[k].returns.forEach(rt => returnRows.push({
+    bizReportKeys().forEach(k => reports[k].returns.forEach(rt => returnRows.push({
       id: `${k}-ret-${rt.id}`, date: rt.date,
       label: `${reports[k].emoji} ${rt.kind} · ${rt.ref}`,
       sub: [
@@ -372,7 +384,7 @@ export default function GeneralReports() {
       id: `carb-${e.kind}-${e.id}`, date: e.date, label: `⛽ ${e.kind} — ${e.label}`, sub: e.description,
       amount: e.amount, amountTone: 'amber', badge: { text: e.kind, tone: 'info' },
     }));
-    (['restaurant', 'cafeteria', 'lavage'] as const).forEach(k => reports[k].expenses.forEach(e => {
+    bizReportKeys().forEach(k => reports[k].expenses.forEach(e => {
       if (e.kind === 'Dépense') expenseRows.push({
         id: `${k}-${e.id}`, date: e.date, label: `${reports[k].emoji} ${e.label}`, sub: e.description, amount: e.amount, amountTone: 'red',
         badge: payBadge(e),
@@ -405,7 +417,7 @@ export default function GeneralReports() {
 
     // ── Destructions — marchandise perdue (stock + comptoir), avec son détail ──
     const destructionRows: DetailRow[] = [];
-    (['restaurant', 'cafeteria', 'lavage'] as const).forEach(k => reports[k].destructions.forEach(d => destructionRows.push({
+    bizReportKeys().forEach(k => reports[k].destructions.forEach(d => destructionRows.push({
       id: `${k}-${d.id}`, date: d.date,
       label: `${reports[k].emoji} ${d.name}`,
       sub: [
@@ -438,7 +450,7 @@ export default function GeneralReports() {
         confirmMessage: `Supprimer le produit « ${l.name} » ? Il disparaîtra de l'inventaire.`,
       });
     });
-    (['restaurant', 'cafeteria', 'lavage'] as const).forEach(k => (stateOf(k).products || []).forEach((p: any) => stockRows.push({
+    bizReportKeys().forEach(k => (stateOf(k).products || []).forEach((p: any) => stockRows.push({
       id: `${k}-${p.id}`, label: `${reports[k].emoji} ${p.name}`,
       sub: `${(p.currentQty || 0).toLocaleString('fr-FR')} ${p.unit || ''} × ${money(p.purchasePrice || 0)}`,
       amount: (p.currentQty || 0) * (p.purchasePrice || 0), amountTone: 'blue',
@@ -611,7 +623,7 @@ export default function GeneralReports() {
         confirmMessage: `Supprimer le client « ${d.name} » et tout son historique ? Cette action est définitive.`,
       });
     });
-    (['restaurant', 'cafeteria', 'lavage'] as const).forEach(k => reports[k].clientDebts.forEach(d => clientDebtRows.push({
+    bizReportKeys().forEach(k => reports[k].clientDebts.forEach(d => clientDebtRows.push({
       id: `${k}-${d.id}`, label: `${reports[k].emoji} ${d.name}`, date: d.date || undefined,
       sub: d.ref === 'REPRISE'
         ? `Dette initiale à l'ouverture du compte — ${money(d.total)}${d.paid ? `, ${money(d.paid)} déjà réglés` : ''}`
@@ -642,7 +654,7 @@ export default function GeneralReports() {
         : { text: 'Dette', tone: 'danger' as const },
       amount: inv.rest, amountTone: 'red',
     }));
-    (['restaurant', 'cafeteria', 'lavage'] as const).forEach(k => reports[k].supplierDebts.forEach(d => supplierDebtRows.push({
+    bizReportKeys().forEach(k => reports[k].supplierDebts.forEach(d => supplierDebtRows.push({
       id: `${k}-${d.id}`, label: `${reports[k].emoji} ${d.name}`, sub: d.ref, amount: d.rest, amountTone: 'red',
     })));
     supplierDebtRows.sort((a, b) => b.amount - a.amount);
@@ -700,10 +712,10 @@ export default function GeneralReports() {
       stockSell:    { title: 'Stock au prix de vente', icon: TrendingUp, subtitle: "Ce que la réserve rapportera si tout part au prix affiché", rows: stockSellRows, total: stockValuation.sellValue, totalLabel: 'Valeur de vente', note: `Au prix d'achat la même réserve vaut ${money(stockValuation.buyValue)} : l'écart, ${money(stockValuation.margin)}, est une marge LATENTE — elle n'existe que si la marchandise se vend.` },
       cogs:         { title: 'Coût des marchandises vendues', icon: Layers, subtitle: 'Ce que les ventes de la période ont réellement coûté', rows: cogsRows, total: global.cogs, totalLabel: 'Coût total', note: `Ventes ${money(global.salesTotal)} − coût des marchandises ${money(global.cogs)} = marge brute ${money(global.grossMargin)}. C'est la part du prix de vente qui n'est PAS un gain : les litres achetés, les ingrédients, le prix d'achat des articles.` },
     };
-  }, [global, reports, app, biz, range, dispatch, restaurantBiz, cafeteriaBiz, lavageBiz, inventaireLosses, inventaireLossTotal,
+  }, [global, reports, app, biz, range, dispatch, restaurantBiz, cafeteriaBiz, lavageBiz, magasin2Biz, inventaireLosses, inventaireLossTotal,
     treasury, workforce, workingCapital, stockValuation]);
 
-  const activeReport: PartReport | null = PART_SECTIONS.includes(active)
+  const activeReport: PartReport | null = partSections().includes(active)
     ? reports[active as 'carburant' | ModuleKey]
     : null;
 
@@ -718,7 +730,7 @@ export default function GeneralReports() {
     if (!MODULES[key]?.isService) return [];
     return workforce.workers.filter(w => w.part === key);
   }, [workforce, active]);
-  const activeInfo = SECTIONS.find(s => s.id === active)!;
+  const activeInfo = SECTIONS.find(s => s.id === active) || SECTIONS[0];
   const ActiveIcon = activeInfo.icon;
 
   /**
@@ -788,14 +800,14 @@ export default function GeneralReports() {
                 <p className="text-white font-black text-sm leading-none truncate">Rapports</p>
                 <p className="text-[10px] font-semibold uppercase tracking-widest mt-0.5" style={{ color: 'rgba(255,184,0,0.65)' }}>Consolidés</p>
               </div>
-              <span className="ml-auto text-[10px] font-black tabular-nums text-white/30 shrink-0">{SECTIONS.length}</span>
+              <span className="ml-auto text-[10px] font-black tabular-nums text-white/30 shrink-0">{visibleSections().length}</span>
             </div>
             {/* Seule cette liste défile — `min-h-0` est ce qui autorise un enfant
                 flex à rétrécir sous sa hauteur naturelle et donc à défiler. */}
             <nav className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-3 py-3 space-y-1">
-              {SECTIONS.map(s => {
+              {visibleSections().map(s => {
                 const Icon = s.icon; const isActive = active === s.id;
-                const rep = PART_SECTIONS.includes(s.id) ? reports[s.id as 'carburant' | ModuleKey] : null;
+                const rep = partSections().includes(s.id) ? reports[s.id as 'carburant' | ModuleKey] : null;
                 // Chaque section porte SON chiffre : le gain d'une activité, la
                 // trésorerie, le fonds de roulement… Une pastille vide ne dirait
                 // rien, et un montant faux serait pire.

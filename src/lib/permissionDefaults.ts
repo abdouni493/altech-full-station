@@ -70,6 +70,14 @@ export const GROUPS: GroupDef[] = [
     ],
   },
   {
+    // Rangements de produits de la piste et transferts depuis les magasins.
+    title: "Armoires",
+    modules: [
+      { id: "Armoires",   label: "Armoires",   icon: Archive,      actions: ['creer', 'modifier', 'supprimer'] },
+      { id: "Transferts", label: "Transferts", icon: ShoppingCart, actions: ['creer', 'modifier', 'supprimer'] },
+    ],
+  },
+  {
     title: "Contacts",
     modules: [
       { id: "Clients",      label: "Clients",      icon: Users, actions: ['creer', 'modifier', 'supprimer', 'imprimer', 'exporter'] },

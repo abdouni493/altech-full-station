@@ -24,7 +24,7 @@ import {
   PiggyBank, Plus, ArrowDownCircle, ArrowUpCircle, ArrowLeftRight, Layers,
   Fuel, Coffee, Droplets, Landmark, UtensilsCrossed, Trash2, Edit2, ShoppingCart, Receipt,
   CreditCard, Target, Wallet, TrendingUp, TrendingDown, ArrowRight, Check,
-  HandCoins, Search, Users, Flag, X,
+  HandCoins, Search, Users, Flag, X, Store,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { newId } from '@/src/lib/utils';
@@ -33,6 +33,7 @@ import {
   TreasuryTransaction, TreasuryPart, CAISSE_ID, CAISSE_PART_ID, CASH_ACCOUNT_LABEL,
   accountLabelOf, isCashAccount, bankBalanceOf, caisseBalanceOf, dedupeLedger,
   cashAccountOfPart, expensePartOf, isBrigadeExpense, cashEffectOf, treasuryEffectOf,
+  activeTreasuryPartList,
 } from '../store/AppContext';
 import { useBizAll } from '../store/BizContext';
 import { MODULES, ModuleKey, bizExpensePaidInCash, netCashOfSale } from '../lib/bizConfig';
@@ -108,9 +109,18 @@ const PART_META: Record<TreasuryPart, { label: string; icon: React.ElementType; 
   carburant: { label: 'Carburant', icon: Fuel, tone: '#003087' },
   restaurant: { label: 'Restaurant', icon: UtensilsCrossed, tone: '#be123c' },
   cafeteria: { label: 'Cafétéria', icon: Coffee, tone: '#b45309' },
-  lavage: { label: 'Magasin', icon: Droplets, tone: '#0e7490' },
+  // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
+  get lavage() { return { label: MODULES.lavage.label, icon: Droplets, tone: '#0e7490' }; },
+  get magasin2() { return { label: MODULES.magasin2.label, icon: Store, tone: '#7c3aed' }; },
   systeme: { label: 'Finance', icon: Landmark, tone: '#4c1d95' },
 };
+
+/** Les activités qui ont une caisse, dans l'ordre d'affichage (second magasin s'il existe). */
+type ActivityPart = Exclude<TreasuryPart, 'systeme'>;
+const activityParts = (): ActivityPart[] =>
+  activeTreasuryPartList().filter((p): p is ActivityPart => p !== 'systeme');
+/** Toutes les caisses affichées, Finance comprise. */
+const shownParts = (): TreasuryPart[] => activeTreasuryPartList();
 
 const NATURE_ICON: Record<string, React.ElementType> = {
   'Dépôt': ArrowDownCircle, 'Retrait': ArrowUpCircle, 'Virement': ArrowLeftRight,
@@ -196,6 +206,7 @@ export default function CaisseGenerale() {
       restaurant: bizLines('restaurant'),
       cafeteria: bizLines('cafeteria'),
       lavage: bizLines('lavage'),
+      magasin2: bizLines('magasin2'),
       systeme: financeLines,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -206,6 +217,7 @@ export default function CaisseGenerale() {
     restaurant: sumLines(partLines.restaurant),
     cafeteria: sumLines(partLines.cafeteria),
     lavage: sumLines(partLines.lavage),
+    magasin2: sumLines(partLines.magasin2),
     systeme: sumLines(partLines.systeme),
   }), [partLines]);
 
@@ -217,8 +229,7 @@ export default function CaisseGenerale() {
    * (Carburant + Restaurant + Cafétéria + Lavage). Rien de ce qui dort en banque n'entre
    * ici : ce chiffre répond à « combien y a-t-il dans les tiroirs ? ».
    */
-  const caissesActivites =
-    partBalances.carburant + partBalances.restaurant + partBalances.cafeteria + partBalances.lavage;
+  const caissesActivites = activityParts().reduce((t, k) => t + partBalances[k], 0);
   /** Toutes les caisses de la station, le tiroir de la Finance compris. */
   const caissesTotal = caissesActivites + financeCash;
   /** Toute la trésorerie : les caisses ET les comptes bancaires. */
@@ -579,7 +590,7 @@ export default function CaisseGenerale() {
     /** L'argent des clients que la station détient — une dette envers eux. */
     advance: clientDebts.reduce((t, r) => t + r.advance, 0),
     debtors: clientDebts.filter(r => r.rest > 0.004).length,
-    byPart: (['carburant', 'restaurant', 'cafeteria', 'lavage'] as const).map(k => ({
+    byPart: activityParts().map(k => ({
       part: k,
       rest: clientDebts.filter(r => r.part === k).reduce((t, r) => t + r.rest, 0),
     })),
@@ -688,13 +699,13 @@ export default function CaisseGenerale() {
             {money(caissesActivites)}
           </p>
           <p className="text-[11px] text-blue-200 mt-1">
-            Somme des caisses Carburant, Restaurant, Cafétéria et Magasin — <strong>espèces uniquement</strong>.
+            Somme des caisses de toutes les activités ({activityParts().map(k => PART_META[k].label).join(", ")}) — <strong>espèces uniquement</strong>.
             L'argent placé en banque n'entre pas dans ce solde.
           </p>
           {/* L'addition est écrite en toutes lettres : trois caisses, un total.
               Chaque terme est cliquable et s'ouvre ligne par ligne. */}
           <div className="grid grid-cols-2 gap-2 mt-4">
-            {(['carburant', 'restaurant', 'cafeteria', 'lavage'] as const).map(k => (
+            {activityParts().map(k => (
               <button key={k} onClick={() => setDetailPart(k)}
                 className="rounded-xl bg-white/10 hover:bg-white/20 transition-colors px-2.5 py-2 text-left">
                 <p className="text-[10px] uppercase text-blue-200 font-bold truncate">{PART_META[k].label}</p>
@@ -771,8 +782,8 @@ export default function CaisseGenerale() {
           autres cartes, qui se retrouvait compté deux fois dès qu'on les
           additionnait. Les quatre cartes font maintenant exactement le total
           « Toutes les caisses » affiché en haut. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {(['carburant', 'restaurant', 'cafeteria', 'lavage', 'systeme'] as const).map(key => {
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${shownParts().length > 5 ? 'lg:grid-cols-3 2xl:grid-cols-6' : 'lg:grid-cols-5'} gap-4`}>
+        {shownParts().map(key => {
           const meta = PART_META[key]; const Icon = meta.icon;
           const val = partBalances[key];
           const spent = partSpending[key] || { expenses: 0, count: 0, bank: 0 };
@@ -987,7 +998,7 @@ export default function CaisseGenerale() {
         <div className="flex flex-wrap items-center gap-3">
           <Select value={partFilter} onChange={e => setPartFilter(e.target.value as any)} className="!w-auto min-w-[190px]">
             <option value="all">Toutes les parties</option>
-            {(Object.keys(PART_META) as TreasuryPart[]).map(p => <option key={p} value={p}>{PART_META[p].label}</option>)}
+            {shownParts().map(p => <option key={p} value={p}>{PART_META[p].label}</option>)}
           </Select>
           <Select value={natureFilter} onChange={e => setNatureFilter(e.target.value)} className="!w-auto min-w-[170px]">
             <option value="all">Toutes les natures</option>
@@ -1556,7 +1567,7 @@ function CashTxModal({
             ? "L'argent entre ou sort de la caisse générale, sans être imputé à une activité."
             : `L'argent entre ou sort de la caisse générale ET compte dans la caisse ${PART_META[part].label}.`}>
           <Select value={part} onChange={e => setPart(e.target.value as TreasuryPart)}>
-            {(Object.keys(PART_META) as TreasuryPart[]).map(p => <option key={p} value={p}>{PART_META[p].label}</option>)}
+            {shownParts().map(p => <option key={p} value={p}>{PART_META[p].label}</option>)}
           </Select>
         </Field>
         <Field label="Description"><Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Motif de l'opération" /></Field>
@@ -1580,7 +1591,7 @@ function CaisseTransferModal({
 }: {
   accounts: { id: string; name: string; balance: number }[];
   caisseBalance: number;
-  partBalances: Record<'carburant' | 'restaurant' | 'cafeteria' | 'lavage', number>;
+  partBalances: Record<ActivityPart, number>;
   createdBy?: string;
   onClose: () => void;
   onSave: (tx: TreasuryTransaction) => void;
@@ -1588,7 +1599,7 @@ function CaisseTransferModal({
   /** Every cash box the money can leave, with its live solde. */
   const sources = useMemo(() => ([
     { id: CAISSE_ID, label: CASH_ACCOUNT_LABEL[CAISSE_ID], part: 'systeme' as TreasuryPart, icon: PiggyBank, balance: caisseBalance },
-    ...(['carburant', 'restaurant', 'cafeteria', 'lavage'] as const).map(k => ({
+    ...activityParts().map(k => ({
       id: CAISSE_PART_ID[k],
       label: PART_META[k].label,
       part: k as TreasuryPart,

@@ -24,7 +24,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn, matchesSearch } from '@/src/lib/utils';
 import { money, formatDate, Table } from '@/src/components/biz/Kit';
 import {
-  WorkforceReport, WorkforceWorker, WorkforcePart, WFBrigade, PART_META,
+  WorkforceReport, WorkforceWorker, WorkforcePart, WFBrigade, PART_META, activeWorkforceParts,
 } from '@/src/lib/workforceReporting';
 
 const fmtDate = (s?: string) => (s ? formatDate(s) : '—');
@@ -43,7 +43,7 @@ const rangeLabel = (from?: string, to?: string) => (!from && !to
   : `${from ? fmtDate(from) : 'origine'} → ${to ? fmtDate(to) : "aujourd'hui"}`);
 
 const PART_ICON: Record<WorkforcePart, React.ElementType> = {
-  carburant: Fuel, restaurant: UtensilsCrossed, cafeteria: Coffee, lavage: Droplets,
+  carburant: Fuel, restaurant: UtensilsCrossed, cafeteria: Coffee, lavage: Droplets, magasin2: Droplets,
 };
 
 // ─── Small building blocks ───────────────────────────────────────────────────
@@ -697,7 +697,7 @@ export default function WorkforceView({ report }: { report: WorkforceReport }) {
           <span className="text-xs text-slate-400 ml-auto">{shown.length} employé(s)</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {(['all', 'carburant', 'restaurant', 'cafeteria', 'lavage'] as const).map(k => (
+          {(['all', ...activeWorkforceParts()] as const).map(k => (
             <button key={k} onClick={() => setPart(k)}
               className={cn('px-3 py-1.5 rounded-lg text-xs font-bold transition-all',
                 part === k ? 'bg-[#003087] text-white shadow' : 'bg-slate-100 text-slate-500 hover:bg-slate-200')}>

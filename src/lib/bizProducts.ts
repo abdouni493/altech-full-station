@@ -25,7 +25,7 @@
  * ──────────────────────────────────────────────────────────────────────────────
  */
 import { supabase } from './supabase';
-import { BizProduct, BizState, ModuleKey } from './bizConfig';
+import { BizProduct, BizState, ModuleKey, isModuleKey } from './bizConfig';
 import { isMissingTable } from './bizSessions';
 import { MODULE_KEYS, SyncModuleState, mergeRows } from './bizSync';
 
@@ -107,10 +107,10 @@ export async function loadBizProducts(): Promise<ProductsLoadResult> {
       if (isMissingTable(error)) return { status: 'missing' };
       return { status: 'error', error: readableError(error) };
     }
-    const out: Record<ModuleKey, BizProduct[]> = { restaurant: [], cafeteria: [], lavage: [] };
+    const out = Object.fromEntries(MODULE_KEYS.map(k => [k, [] as BizProduct[]])) as Record<ModuleKey, BizProduct[]>;
     for (const row of (data || []) as BizProductRow[]) {
       const key = row.module_key as ModuleKey;
-      if (key !== 'restaurant' && key !== 'cafeteria' && key !== 'lavage') continue;
+      if (!isModuleKey(key)) continue;
       const product = rowToProduct(row);
       if (product) out[key].push(product);
     }

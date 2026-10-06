@@ -51,7 +51,7 @@ import {
   ModuleKey, MODULES, BizSale, BizLineItem, BizSession, BizFiche, BizProduct, BizDiscountType,
   detailPrice, discountOf, posPinKey, isSellableProduct, roundQty, formatQty,
   isReversedSale, netCashOfSale, BizProductRef, BizProductCar,
-  productRefLabel, productCarLabel, productSearchFields,
+  productRefLabel, productCarLabel, productSearchFields, isMagasinKey,
 } from '@/src/lib/bizConfig';
 import { useBiz } from '@/src/store/BizContext';
 import { useBizPermission, useAppState } from '@/src/store/AppContext';
@@ -150,7 +150,8 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
    * Pièces détachées : seule la partie Magasin en vend, et donc
    * seule elle cherche par référence ou par véhicule.
    */
-  const isLavage = moduleKey === 'lavage';
+  // Premier OU second magasin : mêmes interfaces (références, véhicules…).
+  const isLavage = isMagasinKey(moduleKey);
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
@@ -230,7 +231,9 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
         });
       } else {
         out.push({
-          id: p.id, name: p.name, price: p.salePrice, avail: p.currentQty,
+          // Bouteille de gaz : seules les PLEINES se vendent (pleines = total − vides).
+          id: p.id, name: p.name, price: p.salePrice,
+          avail: p.consigneActive ? roundQty(p.currentQty - (p.emptyQty || 0)) : p.currentQty,
           unit: p.unit, kind: 'product', categoryName: p.categoryName,
           unitCost: p.purchasePrice || 0,
           imageUrl: p.imageUrl,

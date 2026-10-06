@@ -16,6 +16,8 @@ import {
 } from '../lib/supabase';
 import type { RealtimeHealth } from '../lib/supabase';
 import { newId, degreesFromLiters } from '../lib/utils';
+import { MODULES, applyMagasinSettings, isMagasin2Enabled } from '../lib/bizConfig';
+import type { ConsigneMode, ConsigneState } from '../lib/bizConfig';
 
 // ─── Null-or-zero sanitizer ────────────────────────────────────────────────────
 // Converts empty-string or undefined to null so optional UUID / date FK columns
@@ -126,6 +128,175 @@ export interface Track {
   id: string;
   name: string;
 }
+
+// ─── Armoires (rangements de produits sur la piste) ───────────────────────────
+/**
+ * Une armoire est un rangement de produits posé sur la piste, d'où les
+ * pompistes vendent pendant leur brigade. Elle est rattachée aux POMPES qu'elle
+ * dessert (une brigade est organisée par pompiste → pompes tenues) et,
+ * facultativement, à une piste. Le pompiste qui tient l'une de ces pompes vend
+ * par défaut depuis cette armoire — toutes les autres restent proposées.
+ *
+ * Ses produits viennent d'un MAGASIN (le premier ou le second) par transfert.
+ */
+export interface Armoire {
+  id: string;
+  name: string;
+  /** Piste (track) facultative à laquelle l'armoire est rattachée. */
+  trackId?: string;
+  /** Pompes desservies par cette armoire. */
+  pumpIds?: string[];
+  notes?: string;
+  createdAt?: string;
+}
+
+/** Magasin d'origine d'un produit d'armoire (premier ou second magasin). */
+export type MagasinKey = 'lavage' | 'magasin2';
+
+/** Nature d'un achat / état d'un contenant d'un produit consigné (voir bizConfig). */
+export type { ConsigneMode, ConsigneState };
+
+/** Nombre d'unités PLEINES : total − vides. */
+export const fullOf = (total: number, empty?: number) => (total || 0) - (empty || 0);
+
+/** Stock courant d'un produit dans une armoire (une ligne par produit). */
+export interface ArmoireStockItem {
+  id: string;
+  armoireId: string;
+  productId: string;
+  /** Magasin dont vient le produit. */
+  moduleKey?: MagasinKey;
+  /** Nombre TOTAL d'unités (pleines + vides pour un produit consigné). Peut être négatif. */
+  quantity: number;
+  /** Produit consigné : combien de ces unités sont VIDES. */
+  emptyQuantity?: number;
+}
+
+/** Ligne produit d'un transfert Magasin → Armoire. */
+export interface StockTransferItem {
+  id: string;
+  transferId?: string;
+  productId: string;
+  productName: string;
+  barcode?: string;
+  quantity: number;
+  /** Produit consigné : transfère-t-on des contenants VIDES ou PLEINS ? */
+  consigneState?: ConsigneState;
+}
+
+/** Transfert de produits d'un MAGASIN vers une armoire. */
+export interface StockTransfer {
+  id: string;
+  armoireId: string;
+  /** Magasin d'où partent les produits (premier ou second). */
+  moduleKey: MagasinKey;
+  date: string;
+  /** 'produits' (bouton de la Gestion de stock) ou 'transferts' (page Transferts). */
+  source: 'produits' | 'transferts';
+  notes?: string;
+  createdBy?: string;
+  totalQty: number;
+  items: StockTransferItem[];
+  createdAt?: string;
+}
+
+/** Vente d'un produit depuis une armoire, enregistrée lors d'une brigade. */
+export interface ArmoireSale {
+  id: string;
+  armoireId: string;
+  brigadeId?: string;
+  pompisteId?: string;
+  productId: string;
+  productName: string;
+  moduleKey?: MagasinKey;
+  quantity: number;
+  price: number;
+  total: number;
+  date: string;
+  createdAt?: string;
+  /** Produit consigné : la bouteille vendue reste dans l'armoire, elle passe
+   *  simplement de PLEINE à VIDE (le client repart avec le contenu). */
+  consigne?: boolean;
+}
+
+/** Achat de produits fait DIRECTEMENT par un pompiste auprès d'un fournisseur
+ *  passé à la station : réglé avec l'argent de la brigade et rangé dans une
+ *  armoire. Il justifie le décalage de caisse ET incrémente le stock d'armoire. */
+export interface ArmoirePurchase {
+  id: string;
+  armoireId: string;
+  brigadeId?: string;
+  pompisteId?: string;
+  productId: string;
+  productName: string;
+  moduleKey?: MagasinKey;
+  quantity: number;
+  /** Prix d'achat unitaire — pré-rempli depuis la fiche produit, éditable. */
+  unitPrice: number;
+  total: number;
+  supplierName?: string;
+  date: string;
+  createdAt?: string;
+  consigneMode?: ConsigneMode;
+}
+
+/** Photo du stock d'un produit dans une armoire au moment de la création d'une
+ *  brigade : ce que la brigade précédente a laissé, plus les transferts magasin
+ *  → armoire intervenus depuis, et les mouvements de la brigade. */
+export interface BrigadeArmoireStockLine {
+  armoireId: string;
+  armoireName?: string;
+  productId: string;
+  productName: string;
+  previousQuantity: number;
+  transferredQuantity: number;
+  /** Quantité initiale = previousQuantity + transferredQuantity. */
+  quantity: number;
+  soldQuantity: number;
+  purchasedQuantity: number;
+  /** Quantité finale = quantity − sorties réelles + entrées réelles. */
+  endQuantity: number;
+  consigne?: boolean;
+  previousEmptyQuantity?: number;
+  transferredEmptyQuantity?: number;
+  emptyQuantity?: number;
+  soldEmptyQuantity?: number;
+  filledQuantity?: number;
+  purchasedEmptyQuantity?: number;
+  endEmptyQuantity?: number;
+}
+
+// ─── Helpers de stock (transferts Magasin ↔ Armoire, brigades) ───────────────
+// `quantity` est le delta du nombre TOTAL d'unités ; `emptyQuantity` celui du
+// nombre d'unités VIDES (produits consignés). Les deux suivent le même signe,
+// si bien qu'annuler un mouvement annule aussi son effet vide/plein.
+export type StockLine = { productId: string; quantity: number; emptyQuantity?: number; moduleKey?: MagasinKey };
+
+/** Delta d'un transfert Magasin → Armoire : un contenant VIDE transféré
+ *  déplace une unité ET une unité vide. */
+export const transferStockLine = (i: Pick<StockTransferItem, 'productId' | 'quantity' | 'consigneState'>): StockLine => ({
+  productId: i.productId,
+  quantity: i.quantity,
+  emptyQuantity: i.consigneState === 'VIDE' ? i.quantity : 0,
+});
+
+/** Delta d'armoire d'une VENTE en brigade. Produit consigné : la bouteille ne
+ *  quitte pas l'armoire, elle devient VIDE (total inchangé, +vides). */
+export const armoireSaleStockLine = (
+  s: { productId: string; quantity: number; consigne?: boolean },
+): StockLine => (s.consigne
+  ? { productId: s.productId, quantity: 0, emptyQuantity: s.quantity }
+  : { productId: s.productId, quantity: -s.quantity });
+
+/** Delta d'armoire d'un ACHAT en brigade. `REMPLISSAGE` : des vides repartent
+ *  pleines ; `VIDE` : des contenants vides entrent en plus ; sinon achat classique. */
+export const armoirePurchaseStockLine = (
+  p: { productId: string; quantity: number; consigneMode?: ConsigneMode },
+): StockLine => {
+  if (p.consigneMode === 'REMPLISSAGE') return { productId: p.productId, quantity: 0, emptyQuantity: -p.quantity };
+  if (p.consigneMode === 'VIDE') return { productId: p.productId, quantity: p.quantity, emptyQuantity: p.quantity };
+  return { productId: p.productId, quantity: p.quantity };
+};
 
 export interface Driver {
   id: string;
@@ -357,6 +528,38 @@ export interface Brigade {
    * the theoretical takings.
    */
   versements?: Array<{ id: string; pompisteId: string; amount: number; at: string; notes?: string }>;
+  /** Ventes de produits depuis les armoires saisies à la création de la brigade
+   *  (récap conservé ; le stock d'armoire est décrémenté). */
+  armoireSales?: Array<{
+    armoireId: string;
+    pompisteId: string;
+    productId: string;
+    productName: string;
+    moduleKey?: MagasinKey;
+    quantity: number;
+    price: number;
+    total: number;
+    /** Coût de revient d'une unité, figé à la vente (prix d'achat / de remplissage). */
+    unitCost?: number;
+    /** Produit consigné : la bouteille vendue reste dans l'armoire, elle se vide. */
+    consigne?: boolean;
+  }>;
+  /** Achats de produits réglés par un pompiste sur la caisse de la brigade et
+   *  rangés dans une armoire (justificatif ACHAT_PRODUIT). */
+  armoireProductPurchases?: Array<{
+    armoireId: string;
+    pompisteId: string;
+    productId: string;
+    productName: string;
+    moduleKey?: MagasinKey;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+    supplierName?: string;
+    consigneMode?: ConsigneMode;
+  }>;
+  /** Photo du stock de TOUTES les armoires prise à la création de la brigade. */
+  armoireStockSnapshot?: BrigadeArmoireStockLine[];
 }
 
 export interface BrigadeAccountingJustification {
@@ -372,7 +575,9 @@ export interface BrigadeAccountingJustification {
   // 'EXPENSE' : une dépense payée sur les espèces de la brigade (nom + montant,
   // description facultative). Elle justifie le reste au même titre qu'un bon,
   // sans client ni compte bancaire.
-  justificationType?: 'CLIENT' | 'TAG' | 'TPE' | 'EXPENSE'; // default 'CLIENT'
+  // 'ACHAT_PRODUIT' : marchandise achetée par le pompiste sur la caisse de la
+  // brigade et rangée dans une armoire (bouteilles de gaz comprises).
+  justificationType?: 'CLIENT' | 'TAG' | 'TPE' | 'EXPENSE' | 'ACHAT_PRODUIT'; // default 'CLIENT'
   clientName?: string;    // optional free-text name for TAG/TPE (or the expense label)
   /**
    * La catégorie d'une justification EXPENSE — celle de l'écran Dépenses
@@ -385,6 +590,19 @@ export interface BrigadeAccountingJustification {
   pricePerLiter?: number; // auto-filled from settings
   trackId?: string;       // which piste (track)
   pompisteId?: string;    // which pompiste
+  // ── Justificatif ACHAT_PRODUIT (marchandise achetée et rentrée en armoire) ──
+  productId?: string;
+  productName?: string;
+  /** Magasin dont vient la fiche du produit. */
+  moduleKey?: MagasinKey;
+  armoireId?: string;
+  /** Quantité achetée, en unités de stock du produit. */
+  quantity?: number;
+  /** Prix d'achat unitaire retenu (pré-rempli, éditable). */
+  unitPrice?: number;
+  supplierName?: string;
+  /** Produit consigné : `REMPLISSAGE` (bouteilles vides remplies) ou `VIDE`. */
+  consigneMode?: ConsigneMode;
 }
 
 export interface TpeTransaction {
@@ -627,6 +845,7 @@ export const CAISSE_PART_ID = {
   restaurant: 'CAISSE_RESTAURANT',
   cafeteria: 'CAISSE_CAFETERIA',
   lavage: 'CAISSE_LAVAGE',
+  magasin2: 'CAISSE_MAGASIN2',
 } as const;
 
 /** Every cash box of the station, general one included. */
@@ -638,8 +857,20 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   [CAISSE_PART_ID.carburant]: 'Caisse Carburant',
   [CAISSE_PART_ID.restaurant]: 'Caisse Restaurant',
   [CAISSE_PART_ID.cafeteria]: 'Caisse Cafétéria',
-  [CAISSE_PART_ID.lavage]: 'Caisse Magasin',
+  // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
+  get [CAISSE_PART_ID.lavage]() { return `Caisse ${MODULES.lavage.label}`; },
+  get [CAISSE_PART_ID.magasin2]() { return `Caisse ${MODULES.magasin2.label}`; },
 };
+
+/**
+ * Applique les noms choisis pour les magasins (Paramètres → Magasins) à TOUS
+ * les libellés de l'application : sections de la barre latérale, caisses,
+ * rapports. Appelé à chaque changement des réglages, avant le rendu des écrans.
+ */
+export function syncMagasinLabels(settings: Pick<StationSettings, 'magasin1Name' | 'magasin2Name' | 'magasin2Enabled'> | null | undefined): void {
+  // Les libellés des caisses et des rapports lisent MODULES à la volée.
+  applyMagasinSettings(settings);
+}
 
 /** `true` when the id designates a cash box rather than a bank account. */
 export const isCashAccount = (id?: string): boolean => !!id && CASH_ACCOUNT_IDS.includes(id);
@@ -669,10 +900,14 @@ export type TreasuryKind =
   | 'PURCHASE' | 'SALE' | 'EXPENSE' | 'BRIGADE' | 'TPE' | 'SALARY' | 'ADJUST';
 
 /** Which activity of the station the movement belongs to. */
-export type TreasuryPart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'systeme';
+export type TreasuryPart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'systeme';
 
 /** Les activités qui tiennent leur PROPRE caisse — la Finance tient la générale. */
-export const TREASURY_PARTS: TreasuryPart[] = ['carburant', 'restaurant', 'cafeteria', 'lavage', 'systeme'];
+export const TREASURY_PARTS: TreasuryPart[] = ['carburant', 'restaurant', 'cafeteria', 'lavage', 'magasin2', 'systeme'];
+
+/** Les activités réellement utilisées : le second magasin n'y figure qu'une fois créé. */
+export const activeTreasuryPartList = (): TreasuryPart[] =>
+  TREASURY_PARTS.filter(p => p !== 'magasin2' || isMagasin2Enabled());
 
 /**
  * La caisse d'où sortent les ESPÈCES d'une activité : son propre coffre, et la
@@ -1122,7 +1357,7 @@ export type AppUserRole =
 /** Connected employee of a business part, resolved at login from Supabase. */
 export interface ModuleWorkerSession {
   id: string;
-  moduleKey: 'restaurant' | 'cafeteria' | 'lavage';
+  moduleKey: 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
   name: string;
   roleName?: string;
   /** Flat map keyed `"<interface>.<action>"`, e.g. `"stock.voir"`. */
@@ -1168,6 +1403,13 @@ export interface StationSettings {
   decalageNegatifActif?: boolean;
   decalagePositifSeuil?: number;  // threshold below which positive décalage alert is suppressed
   decalageNegatifSeuil?: number;  // threshold below which negative décalage alert is suppressed
+  // ── Magasins (Paramètres → Magasins) ──────────────────────────────────────
+  /** Nom du PREMIER magasin (partie `lavage`). Vide ⇒ « Magasin ». */
+  magasin1Name?: string;
+  /** Nom du SECOND magasin (partie `magasin2`). */
+  magasin2Name?: string;
+  /** Le second magasin a-t-il été créé ? Il apparaît alors dans la barre latérale. */
+  magasin2Enabled?: boolean;
 }
 
 export interface BrigadeDecalageAlert {
@@ -1236,6 +1478,13 @@ export interface AppState {
   magasinWorkers: MagasinWorker[];
   productBrands: ProductBrand[];
   drivers: Driver[];
+  /** Armoires de la piste, leur stock, les transferts magasin → armoire et les
+   *  ventes / achats de produits saisis dans les brigades. */
+  armoires: Armoire[];
+  armoireStock: ArmoireStockItem[];
+  stockTransfers: StockTransfer[];
+  armoireSales: ArmoireSale[];
+  armoirePurchases: ArmoirePurchase[];
   currentUserRole: AppUserRole;
   currentUserId?: string;
   currentUserName?: string;
@@ -1284,6 +1533,7 @@ const initialState: AppState = {
   users: [], permissionTemplates: [], toasts: [], activityLog: [],
   isRtl: false,
   gerants: [], magasinWorkers: [], productBrands: [], drivers: [],
+  armoires: [], armoireStock: [], stockTransfers: [], armoireSales: [], armoirePurchases: [],
   currentUserRole: 'admin',
   currentUserName: undefined,
   currentUserAvatarUrl: undefined,
@@ -1409,7 +1659,92 @@ type AppAction =
   | { type: 'DELETE_BRIGADE_DECALAGE_ALERTS_BY_BRIGADE'; payload: string }
   | { type: 'SET_BRIGADE_DECALAGE_ALERTS'; payload: BrigadeDecalageAlert[] }
   | { type: 'HYDRATE_TABLES' }
-  | { type: 'RESTORE_STATE'; payload: AppState };
+  | { type: 'RESTORE_STATE'; payload: AppState }
+  // ── Armoires & transferts Magasin → Armoire ──────────────────────────────
+  | { type: 'ADD_ARMOIRE'; payload: Armoire }
+  | { type: 'UPDATE_ARMOIRE'; payload: Armoire }
+  | { type: 'DELETE_ARMOIRE'; payload: string }
+  | { type: 'ADD_STOCK_TRANSFER'; payload: StockTransfer }
+  | { type: 'UPDATE_STOCK_TRANSFER'; payload: { transfer: StockTransfer; previous: StockTransfer } }
+  | { type: 'DELETE_STOCK_TRANSFER'; payload: StockTransfer };
+
+// ─── Stock d'armoire : deltas purs (mises à jour optimistes) ──────────────────
+// `sign` vaut +1 pour appliquer un mouvement, −1 pour l'annuler.
+
+function applyArmoireDelta(
+  stock: ArmoireStockItem[], armoireId: string, items: StockLine[], sign: number,
+): ArmoireStockItem[] {
+  if (!items?.length || !armoireId) return stock;
+  const next = stock.map(s => ({ ...s }));
+  items.forEach(i => {
+    if (!i.productId) return;
+    const empty = (i.emptyQuantity || 0) * sign;
+    const idx = next.findIndex(s => s.armoireId === armoireId && s.productId === i.productId);
+    if (idx >= 0) {
+      next[idx].quantity += i.quantity * sign;
+      next[idx].emptyQuantity = (next[idx].emptyQuantity || 0) + empty;
+      if (i.moduleKey && !next[idx].moduleKey) next[idx].moduleKey = i.moduleKey;
+    } else {
+      next.push({ id: newId(), armoireId, productId: i.productId, moduleKey: i.moduleKey, quantity: i.quantity * sign, emptyQuantity: empty });
+    }
+  });
+  return next;
+}
+
+/** Les lignes de stock d'un transfert, avec le magasin d'origine. */
+const transferLines = (tr: StockTransfer): StockLine[] =>
+  (tr.items || []).map(i => ({ ...transferStockLine(i), moduleKey: tr.moduleKey }));
+
+/**
+ * Applique (+1) ou ANNULE (−1) tous les mouvements de stock d'armoire d'une
+ * brigade : ses ventes de produits ET ses achats rentrés en armoire. Seule
+ * source des deltas liés à une brigade — création, édition, suppression.
+ */
+function applyBrigadeArmoireDeltas(
+  stock: ArmoireStockItem[],
+  brigade: Pick<Brigade, 'armoireSales' | 'armoireProductPurchases'>,
+  sign: number,
+): ArmoireStockItem[] {
+  let next = stock;
+  for (const sl of brigade.armoireSales ?? []) {
+    if (!sl.armoireId || !sl.productId || !sl.quantity) continue;
+    next = applyArmoireDelta(next, sl.armoireId, [{ ...armoireSaleStockLine(sl), moduleKey: sl.moduleKey }], sign);
+  }
+  for (const p of brigade.armoireProductPurchases ?? []) {
+    if (!p.armoireId || !p.productId || !p.quantity) continue;
+    next = applyArmoireDelta(next, p.armoireId, [{ ...armoirePurchaseStockLine(p), moduleKey: p.moduleKey }], sign);
+  }
+  return next;
+}
+
+/** Lignes `ArmoireSale` (état global) reconstruites depuis le récap d'une brigade. */
+function brigadeArmoireSaleRows(b: Brigade): ArmoireSale[] {
+  const date = b.endDatetime || b.startDatetime || b.date || new Date().toISOString();
+  return (b.armoireSales ?? [])
+    .filter(x => x.armoireId && x.productId)
+    .map(x => ({
+      id: newId(), armoireId: x.armoireId, brigadeId: b.id, pompisteId: x.pompisteId,
+      productId: x.productId, productName: x.productName, moduleKey: x.moduleKey,
+      quantity: x.quantity, price: x.price, total: x.total, date, consigne: x.consigne ?? false,
+    }));
+}
+
+/** Lignes `ArmoirePurchase` (état global) reconstruites depuis le récap d'une brigade. */
+function brigadeArmoirePurchaseRows(b: Brigade): ArmoirePurchase[] {
+  const date = b.endDatetime || b.startDatetime || b.date || new Date().toISOString();
+  return (b.armoireProductPurchases ?? [])
+    .filter(p => p.armoireId && p.productId)
+    .map(p => ({
+      id: newId(), armoireId: p.armoireId, brigadeId: b.id, pompisteId: p.pompisteId,
+      productId: p.productId, productName: p.productName, moduleKey: p.moduleKey,
+      quantity: p.quantity, unitPrice: p.unitPrice, total: p.total,
+      supplierName: p.supplierName, date, consigneMode: p.consigneMode,
+    }));
+}
+
+/** La brigade porte-t-elle un récap d'armoire ? (sinon : rien n'a changé). */
+const carriesArmoireMoves = (b: Partial<Brigade>): boolean =>
+  b.armoireSales !== undefined || b.armoireProductPurchases !== undefined;
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────
 
@@ -1562,11 +1897,44 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
     case 'RESTORE_STATE': return action.payload;
 
-    case 'ADD_BRIGADE':    return { ...state, brigades: [...state.brigades, action.payload] };
-    case 'UPDATE_BRIGADE': return { ...state, brigades: state.brigades.map(b => b.id === action.payload.id ? action.payload : b) };
-    case 'DELETE_BRIGADE':
+    // Le stock des armoires suit la brigade : ses ventes le décrémentent (ou
+    // vident les bouteilles), ses achats l'incrémentent (ou les remplissent).
+    case 'ADD_BRIGADE': {
+      const b = action.payload;
       return {
         ...state,
+        brigades: [...state.brigades, b],
+        armoireStock: applyBrigadeArmoireDeltas(state.armoireStock || [], b, +1),
+        armoireSales: [...(state.armoireSales || []), ...brigadeArmoireSaleRows(b)],
+        armoirePurchases: [...(state.armoirePurchases || []), ...brigadeArmoirePurchaseRows(b)],
+      };
+    }
+    case 'UPDATE_BRIGADE': {
+      const b = action.payload;
+      const prev = state.brigades.find(x => x.id === b.id);
+      const brigades = state.brigades.map(x => x.id === b.id ? b : x);
+      if (!carriesArmoireMoves(b)) return { ...state, brigades };
+      // Éditer une brigade REJOUE ses mouvements d'armoire : on annule ceux de
+      // l'ancienne version, puis on applique ceux de la nouvelle.
+      let armoireStock = state.armoireStock || [];
+      if (prev) armoireStock = applyBrigadeArmoireDeltas(armoireStock, prev, -1);
+      armoireStock = applyBrigadeArmoireDeltas(armoireStock, b, +1);
+      return {
+        ...state,
+        brigades,
+        armoireStock,
+        armoireSales: [...(state.armoireSales || []).filter(x => x.brigadeId !== b.id), ...brigadeArmoireSaleRows(b)],
+        armoirePurchases: [...(state.armoirePurchases || []).filter(x => x.brigadeId !== b.id), ...brigadeArmoirePurchaseRows(b)],
+      };
+    }
+    case 'DELETE_BRIGADE': {
+      // Supprimer une brigade rend aux armoires ce qu'elle avait vendu / acheté.
+      const gone = state.brigades.find(b => b.id === action.payload);
+      return {
+        ...state,
+        armoireStock: gone ? applyBrigadeArmoireDeltas(state.armoireStock || [], gone, -1) : state.armoireStock,
+        armoireSales: (state.armoireSales || []).filter(x => x.brigadeId !== action.payload),
+        armoirePurchases: (state.armoirePurchases || []).filter(x => x.brigadeId !== action.payload),
         brigades: state.brigades.filter(b => b.id !== action.payload),
         brigadeDecalageAlerts: (state.brigadeDecalageAlerts || []).filter(a => a.brigadeId !== action.payload),
         brigadeAccountings: (state.brigadeAccountings || []).filter(a => a.brigadeId !== action.payload),
@@ -1582,6 +1950,47 @@ function appReducer(state: AppState, action: AppAction): AppState {
         // rattachée à une brigade qui n'existe plus.
         expenses: (state.expenses || []).filter(e => e.brigadeId !== action.payload),
       };
+    }
+
+    // ── Armoires ───────────────────────────────────────────────────────────────
+    case 'ADD_ARMOIRE':    return { ...state, armoires: [action.payload, ...(state.armoires || [])] };
+    case 'UPDATE_ARMOIRE': return { ...state, armoires: (state.armoires || []).map(a => a.id === action.payload.id ? action.payload : a) };
+    case 'DELETE_ARMOIRE': return {
+      ...state,
+      armoires: (state.armoires || []).filter(a => a.id !== action.payload),
+      armoireStock: (state.armoireStock || []).filter(st => st.armoireId !== action.payload),
+      stockTransfers: (state.stockTransfers || []).filter(t => t.armoireId !== action.payload),
+    };
+
+    // ── Transferts Magasin → Armoire (le stock magasin est déplacé par l'écran,
+    //    dans la partie Magasin concernée ; ici : l'armoire et l'historique) ──
+    case 'ADD_STOCK_TRANSFER': {
+      const tr = action.payload;
+      return {
+        ...state,
+        stockTransfers: [tr, ...(state.stockTransfers || [])],
+        armoireStock: applyArmoireDelta(state.armoireStock || [], tr.armoireId, transferLines(tr), +1),
+      };
+    }
+    case 'UPDATE_STOCK_TRANSFER': {
+      const { transfer, previous } = action.payload;
+      // Annuler l'ancien transfert puis appliquer le nouveau.
+      let armoireStock = applyArmoireDelta(state.armoireStock || [], previous.armoireId, transferLines(previous), -1);
+      armoireStock = applyArmoireDelta(armoireStock, transfer.armoireId, transferLines(transfer), +1);
+      return {
+        ...state,
+        stockTransfers: (state.stockTransfers || []).map(t => t.id === transfer.id ? transfer : t),
+        armoireStock,
+      };
+    }
+    case 'DELETE_STOCK_TRANSFER': {
+      const tr = action.payload;
+      return {
+        ...state,
+        stockTransfers: (state.stockTransfers || []).filter(t => t.id !== tr.id),
+        armoireStock: applyArmoireDelta(state.armoireStock || [], tr.armoireId, transferLines(tr), -1),
+      };
+    }
 
     case 'ADD_FUEL_SALE':    return { ...state, fuelSales: [...state.fuelSales, action.payload] };
     case 'UPDATE_FUEL_SALE': return { ...state, fuelSales: state.fuelSales.map(s => s.id === action.payload.id ? action.payload : s) };
@@ -1873,7 +2282,52 @@ function mapMagasinWorker(r: any): MagasinWorker {
   return { id: r.id, name: r.name, phone: r.phone, email: r.email, cin: r.cin, address: r.address, photo: r.photo_url, photoUrl: r.photo_url, status: r.status, baseSalary: +r.base_salary, salaryType: r.salary_type ?? undefined, workDays: r.work_days ?? undefined, cnasDate: r.cnas_date ?? undefined, hasAccess: r.has_access, username: r.username, authUserId: r.auth_user_id ?? undefined, permissions: r.permissions || {}, hireDate: r.hire_date, paymentRecord: [], acomptes: [], absences: [] };
 }
 function mapBrigade(r: any): Brigade {
-  return { id: r.id, createdAt: r.created_at ?? undefined, date: r.date, shift: r.shift, chefId: r.chef_id, status: r.status, startTimestamp: r.start_timestamp, endTimestamp: r.end_timestamp, startTime: r.start_time, endTime: r.end_time, startDatetime: r.start_datetime, endDatetime: r.end_datetime, isActive: r.is_active, notes: r.notes, printedAt: r.printed_at, pompisteIds: [], startIndices: r.start_indices || {}, endIndices: r.end_indices || {}, startTankLevels: r.start_tank_levels || {}, endTankLevels: r.end_tank_levels || {}, pompisteData: r.pompiste_data || {}, pompisteAssignments: r.pompiste_assignments || [], startNozzleIndices: r.start_nozzle_indices || {}, endNozzleIndices: r.end_nozzle_indices || {}, activeNozzleIds: r.active_nozzle_ids || [], canReactivate: r.can_reactivate ?? false, pompistePumpAssignments: r.pompiste_pump_assignments || [], versements: r.versements || [] };
+  return { id: r.id, createdAt: r.created_at ?? undefined, date: r.date, shift: r.shift, chefId: r.chef_id, status: r.status, startTimestamp: r.start_timestamp, endTimestamp: r.end_timestamp, startTime: r.start_time, endTime: r.end_time, startDatetime: r.start_datetime, endDatetime: r.end_datetime, isActive: r.is_active, notes: r.notes, printedAt: r.printed_at, pompisteIds: [], startIndices: r.start_indices || {}, endIndices: r.end_indices || {}, startTankLevels: r.start_tank_levels || {}, endTankLevels: r.end_tank_levels || {}, pompisteData: r.pompiste_data || {}, pompisteAssignments: r.pompiste_assignments || [], startNozzleIndices: r.start_nozzle_indices || {}, endNozzleIndices: r.end_nozzle_indices || {}, activeNozzleIds: r.active_nozzle_ids || [], canReactivate: r.can_reactivate ?? false, pompistePumpAssignments: r.pompiste_pump_assignments || [], versements: r.versements || [], armoireSales: r.armoire_sales || [], armoireProductPurchases: r.armoire_product_purchases || [], armoireStockSnapshot: r.armoire_stock_snapshot || [] };
+}
+
+// ─── Armoires : mappers ────────────────────────────────────────────────────────
+function mapArmoire(r: any): Armoire {
+  return { id: r.id, name: r.name, trackId: r.track_id ?? undefined, pumpIds: Array.isArray(r.pump_ids) ? r.pump_ids : [], notes: r.notes ?? undefined, createdAt: r.created_at };
+}
+function mapArmoireStockItem(r: any): ArmoireStockItem {
+  return { id: r.id, armoireId: r.armoire_id, productId: r.product_id, moduleKey: r.module_key ?? undefined, quantity: +r.quantity || 0, emptyQuantity: +(r.empty_quantity ?? 0) };
+}
+function mapStockTransferItem(r: any): StockTransferItem {
+  return { id: r.id, transferId: r.transfer_id, productId: r.product_id, productName: r.product_name || '', barcode: r.barcode ?? undefined, quantity: +r.quantity || 0, consigneState: r.consigne_state ?? undefined };
+}
+function mapStockTransfer(r: any): StockTransfer {
+  return { id: r.id, armoireId: r.armoire_id, moduleKey: (r.module_key || 'lavage') as MagasinKey, date: r.date, source: (r.source ?? 'transferts'), notes: r.notes ?? undefined, createdBy: r.created_by ?? undefined, totalQty: +r.total_qty || 0, items: [], createdAt: r.created_at };
+}
+function mapArmoireSale(r: any): ArmoireSale {
+  return { id: r.id, armoireId: r.armoire_id, brigadeId: r.brigade_id ?? undefined, pompisteId: r.pompiste_id ?? undefined, productId: r.product_id, productName: r.product_name || '', moduleKey: r.module_key ?? undefined, quantity: +r.quantity || 0, price: +r.price || 0, total: +r.total || 0, date: r.date, createdAt: r.created_at, consigne: r.consigne ?? false };
+}
+function mapArmoirePurchase(r: any): ArmoirePurchase {
+  return { id: r.id, armoireId: r.armoire_id, brigadeId: r.brigade_id ?? undefined, pompisteId: r.pompiste_id ?? undefined, productId: r.product_id, productName: r.product_name || '', moduleKey: r.module_key ?? undefined, quantity: +r.quantity || 0, unitPrice: +r.unit_price || 0, total: +r.total || 0, supplierName: r.supplier_name ?? undefined, date: r.date, createdAt: r.created_at, consigneMode: r.consigne_mode ?? undefined };
+}
+
+/**
+ * Tout ce qui touche aux armoires, en une lecture. Une table absente (migration
+ * pas encore passée) rend une liste vide : l'application continue de tourner.
+ */
+async function loadArmoireData(): Promise<Pick<AppState, 'armoires' | 'armoireStock' | 'stockTransfers' | 'armoireSales' | 'armoirePurchases'>> {
+  const safe = <T,>(p: Promise<T[]>) => p.catch(err => { console.warn('[armoires] lecture impossible (migration SQL à exécuter ?) :', err?.message || err); return [] as T[]; });
+  const [rawA, rawS, rawT, rawI, rawSales, rawP] = await Promise.all([
+    safe(db.getArmoires()), safe(db.getArmoireStock()), safe(db.getStockTransfers()),
+    safe(db.getStockTransferItems()), safe(db.getArmoireSales()), safe(db.getArmoirePurchases()),
+  ]);
+  const items = (rawI as any[]).map(mapStockTransferItem);
+  const stockTransfers = (rawT as any[]).map(t => {
+    const m = mapStockTransfer(t);
+    m.items = items.filter(i => i.transferId === m.id);
+    return m;
+  });
+  return {
+    armoires: (rawA as any[]).map(mapArmoire),
+    armoireStock: (rawS as any[]).map(mapArmoireStockItem),
+    stockTransfers,
+    armoireSales: (rawSales as any[]).map(mapArmoireSale),
+    armoirePurchases: (rawP as any[]).map(mapArmoirePurchase),
+  };
 }
 function mapBrigadeAccounting(r: any): BrigadeAccounting {
   return {
@@ -1910,6 +2364,11 @@ async function loadBrigadeAccountingsWithJustifications(): Promise<BrigadeAccoun
         clientName: jr.client_name, fuelType: jr.fuel_type, liters: +jr.liters || 0,
         pricePerLiter: +jr.price_per_liter || 0, trackId: jr.track_id, pompisteId: jr.pompiste_id,
         expenseCategory: jr.expense_category ?? undefined,
+        // Justificatif ACHAT_PRODUIT : produit, armoire, quantité, prix, consigne.
+        productId: jr.product_id ?? undefined, productName: jr.product_name ?? undefined,
+        moduleKey: jr.module_key ?? undefined, armoireId: jr.armoire_id ?? undefined,
+        quantity: +jr.quantity || 0, unitPrice: +jr.unit_price || 0,
+        supplierName: jr.supplier_name ?? undefined, consigneMode: jr.consigne_mode ?? undefined,
       });
     });
   }
@@ -2193,7 +2652,7 @@ function mapNozzle(r: any): PumpNozzle {
   return { id: r.id, pumpId: r.pump_id, name: r.name, tankId: r.tank_id ?? undefined, lastIndex: +r.last_index, startIndex: +r.start_index, status: r.status || 'Actif', createdAt: r.created_at ?? undefined };
 }
 function mapSettings(r: any): StationSettings {
-  return { name: r.name, logo: r.logo_url, logoUrl: r.logo_url, address: r.address, phone: r.phone, email: r.email, fiscalId: r.fiscal_id, rc: r.rc, fuelPrices: r.fuel_prices || emptySettings.fuelPrices, fuelBuyPrices: r.fuel_buy_prices || emptySettings.fuelBuyPrices, conversionTables: r.conversion_tables || {}, productCategories: r.product_categories || emptySettings.productCategories, expenseCategories: r.expense_categories || emptySettings.expenseCategories, productUnits: r.product_units || DEFAULT_PRODUCT_UNITS, decalagePositifActif: r.decalage_positif_actif, decalageNegatifActif: r.decalage_negatif_actif, decalagePositifSeuil: +(r.decalage_positif_seuil ?? 0), decalageNegatifSeuil: +(r.decalage_negatif_seuil ?? 0) };
+  return { name: r.name, logo: r.logo_url, logoUrl: r.logo_url, address: r.address, phone: r.phone, email: r.email, fiscalId: r.fiscal_id, rc: r.rc, fuelPrices: r.fuel_prices || emptySettings.fuelPrices, fuelBuyPrices: r.fuel_buy_prices || emptySettings.fuelBuyPrices, conversionTables: r.conversion_tables || {}, productCategories: r.product_categories || emptySettings.productCategories, expenseCategories: r.expense_categories || emptySettings.expenseCategories, productUnits: r.product_units || DEFAULT_PRODUCT_UNITS, decalagePositifActif: r.decalage_positif_actif, decalageNegatifActif: r.decalage_negatif_actif, decalagePositifSeuil: +(r.decalage_positif_seuil ?? 0), decalageNegatifSeuil: +(r.decalage_negatif_seuil ?? 0), magasin1Name: r.magasin1_name ?? undefined, magasin2Name: r.magasin2_name ?? undefined, magasin2Enabled: !!r.magasin2_enabled };
 }
 function mapAcompte(r: any): Acompte {
   return { id: r.id, date: r.date, amount: +r.amount, description: r.description, isPaid: r.is_paid, monthPaid: r.month_paid };
@@ -2289,6 +2748,96 @@ async function cleanBrigadeDependencies(brigadeId: string): Promise<void> {
   //    suppression de la brigade elle-même.
   const { error: expErr } = await supabase.from('expenses').delete().eq('brigade_id', brigadeId);
   if (expErr) console.warn('[brigade] dépenses de brigade non supprimées :', expErr.message);
+}
+
+// ─── Armoires : écriture en base ──────────────────────────────────────────────
+
+/** Colonnes jsonb d'une brigade qui portent son récap d'armoire. */
+function brigadeArmoireColumns(b: Brigade) {
+  return {
+    armoire_sales: b.armoireSales || [],
+    armoire_product_purchases: b.armoireProductPurchases || [],
+    armoire_stock_snapshot: b.armoireStockSnapshot || [],
+  };
+}
+
+/** Colonnes du justificatif ACHAT_PRODUIT (vides pour les autres types). */
+function justifProductColumns(j: BrigadeAccountingJustification) {
+  if (j.justificationType !== 'ACHAT_PRODUIT') return {};
+  return {
+    product_id: nz(j.productId), product_name: nz(j.productName), module_key: nz(j.moduleKey),
+    armoire_id: nz(j.armoireId), quantity: j.quantity || 0, unit_price: j.unitPrice || 0,
+    supplier_name: nz(j.supplierName), consigne_mode: nz(j.consigneMode),
+  };
+}
+
+const stockTransferRow = (tr: StockTransfer) => ({
+  id: tr.id, armoire_id: tr.armoireId, module_key: tr.moduleKey, date: tr.date, source: tr.source,
+  notes: nz(tr.notes), created_by: nz(tr.createdBy), total_qty: tr.totalQty,
+});
+const stockTransferItemRow = (transferId: string, i: StockTransferItem) => ({
+  id: i.id, transfer_id: transferId, product_id: i.productId, product_name: i.productName,
+  barcode: nz(i.barcode), quantity: i.quantity, consigne_state: nz(i.consigneState),
+});
+
+/**
+ * Annule en base les mouvements d'armoire ENREGISTRÉS d'une brigade : on relit
+ * ce qui a réellement été appliqué (armoire_sales / armoire_purchases) avant de
+ * le rendre, puis on efface ces lignes. Table absente => rien à rendre.
+ */
+async function reverseBrigadeArmoireStock(brigadeId: string): Promise<void> {
+  const [salesRes, purchRes] = await Promise.all([
+    supabase.from('armoire_sales').select('armoire_id, product_id, quantity, consigne, module_key').eq('brigade_id', brigadeId),
+    supabase.from('armoire_purchases').select('armoire_id, product_id, quantity, consigne_mode, module_key').eq('brigade_id', brigadeId),
+  ]);
+  if (salesRes.error && purchRes.error) return;
+  for (const r of (salesRes.data || []) as any[]) {
+    if (!r.armoire_id || !r.product_id) continue;
+    const l = armoireSaleStockLine({ productId: r.product_id, quantity: +r.quantity || 0, consigne: !!r.consigne });
+    await db.adjustArmoireStock(r.armoire_id, r.product_id, -l.quantity, -(l.emptyQuantity || 0), r.module_key ?? undefined);
+  }
+  for (const r of (purchRes.data || []) as any[]) {
+    if (!r.armoire_id || !r.product_id) continue;
+    const l = armoirePurchaseStockLine({ productId: r.product_id, quantity: +r.quantity || 0, consigneMode: r.consigne_mode ?? undefined });
+    await db.adjustArmoireStock(r.armoire_id, r.product_id, -l.quantity, -(l.emptyQuantity || 0), r.module_key ?? undefined);
+  }
+  await Promise.all([
+    supabase.from('armoire_sales').delete().eq('brigade_id', brigadeId),
+    supabase.from('armoire_purchases').delete().eq('brigade_id', brigadeId),
+  ]);
+}
+
+/**
+ * Écrit les ventes / achats de produits d'une brigade (armoire_sales /
+ * armoire_purchases) et applique le delta correspondant au stock d'armoire.
+ */
+async function writeBrigadeArmoireStock(b: Brigade): Promise<void> {
+  const date = b.endDatetime || b.startDatetime || b.date || new Date().toISOString();
+  const sales = (b.armoireSales || []).filter(x => x.armoireId && x.productId && x.quantity);
+  const purchases = (b.armoireProductPurchases || []).filter(x => x.armoireId && x.productId && x.quantity);
+  if (sales.length) {
+    await db.addArmoireSales(sales.map(x => ({
+      id: newId(), armoire_id: x.armoireId, brigade_id: b.id, pompiste_id: nz(x.pompisteId),
+      product_id: x.productId, product_name: x.productName, module_key: nz(x.moduleKey),
+      quantity: x.quantity, price: x.price, total: x.total, consigne: !!x.consigne, date,
+    })));
+    for (const x of sales) {
+      const l = armoireSaleStockLine(x);
+      await db.adjustArmoireStock(x.armoireId, x.productId, l.quantity, l.emptyQuantity || 0, x.moduleKey);
+    }
+  }
+  if (purchases.length) {
+    await db.addArmoirePurchases(purchases.map(x => ({
+      id: newId(), armoire_id: x.armoireId, brigade_id: b.id, pompiste_id: nz(x.pompisteId),
+      product_id: x.productId, product_name: x.productName, module_key: nz(x.moduleKey),
+      quantity: x.quantity, unit_price: x.unitPrice, total: x.total,
+      supplier_name: nz(x.supplierName), consigne_mode: nz(x.consigneMode), date,
+    })));
+    for (const x of purchases) {
+      const l = armoirePurchaseStockLine(x);
+      await db.adjustArmoireStock(x.armoireId, x.productId, l.quantity, l.emptyQuantity || 0, x.moduleKey);
+    }
+  }
 }
 
 // ─── Supabase sync function (standalone, not a hook) ─────────────────────────
@@ -2394,20 +2943,76 @@ async function syncToSupabase(action: AppAction): Promise<void> {
       case 'DELETE_MAGASIN_WORKER': await db.deleteMagasinWorker(action.payload); break;
       case 'ADD_BRIGADE': {
         const b = action.payload;
-        await db.addBrigade({ id: b.id, date: b.date, shift: b.shift, chef_id: nz(b.chefId), status: b.status, start_timestamp: b.startTimestamp, end_timestamp: b.endTimestamp, start_time: b.startTime, end_time: b.endTime, start_datetime: nz(b.startDatetime), end_datetime: nz(b.endDatetime), is_active: b.isActive, notes: b.notes, start_indices: b.startIndices || {}, end_indices: b.endIndices || {}, start_tank_levels: b.startTankLevels || {}, end_tank_levels: b.endTankLevels || {}, pompiste_data: b.pompisteData || {}, pompiste_assignments: b.pompisteAssignments || [], start_nozzle_indices: b.startNozzleIndices || {}, end_nozzle_indices: b.endNozzleIndices || {}, active_nozzle_ids: b.activeNozzleIds || [], can_reactivate: b.canReactivate ?? false, pompiste_pump_assignments: b.pompistePumpAssignments || [], versements: b.versements || [] });
+        await db.addBrigade({ id: b.id, date: b.date, shift: b.shift, chef_id: nz(b.chefId), status: b.status, start_timestamp: b.startTimestamp, end_timestamp: b.endTimestamp, start_time: b.startTime, end_time: b.endTime, start_datetime: nz(b.startDatetime), end_datetime: nz(b.endDatetime), is_active: b.isActive, notes: b.notes, start_indices: b.startIndices || {}, end_indices: b.endIndices || {}, start_tank_levels: b.startTankLevels || {}, end_tank_levels: b.endTankLevels || {}, pompiste_data: b.pompisteData || {}, pompiste_assignments: b.pompisteAssignments || [], start_nozzle_indices: b.startNozzleIndices || {}, end_nozzle_indices: b.endNozzleIndices || {}, active_nozzle_ids: b.activeNozzleIds || [], can_reactivate: b.canReactivate ?? false, pompiste_pump_assignments: b.pompistePumpAssignments || [], versements: b.versements || [], ...brigadeArmoireColumns(b) });
         if (b.pompisteIds?.length) await supabase.from('brigade_pompiste_assignments').insert(b.pompisteIds.map(pid => ({ brigade_id: b.id, pompiste_id: pid })));
+        // Ventes / achats de produits en armoire : lignes d'historique + stock.
+        await writeBrigadeArmoireStock(b);
         break;
       }
       case 'UPDATE_BRIGADE': {
         const b = action.payload;
-        await db.updateBrigade(b.id, { date: b.date, shift: b.shift, chef_id: nz(b.chefId), status: b.status, start_timestamp: b.startTimestamp, end_timestamp: b.endTimestamp, start_time: b.startTime, end_time: b.endTime, start_datetime: nz(b.startDatetime), end_datetime: nz(b.endDatetime), is_active: b.isActive, notes: b.notes, printed_at: b.printedAt, start_indices: b.startIndices || {}, end_indices: b.endIndices || {}, start_tank_levels: b.startTankLevels || {}, end_tank_levels: b.endTankLevels || {}, pompiste_data: b.pompisteData || {}, pompiste_assignments: b.pompisteAssignments || [], start_nozzle_indices: b.startNozzleIndices || {}, end_nozzle_indices: b.endNozzleIndices || {}, active_nozzle_ids: b.activeNozzleIds || [], can_reactivate: b.canReactivate ?? false, pompiste_pump_assignments: b.pompistePumpAssignments || [], versements: b.versements || [] });
+        await db.updateBrigade(b.id, { date: b.date, shift: b.shift, chef_id: nz(b.chefId), status: b.status, start_timestamp: b.startTimestamp, end_timestamp: b.endTimestamp, start_time: b.startTime, end_time: b.endTime, start_datetime: nz(b.startDatetime), end_datetime: nz(b.endDatetime), is_active: b.isActive, notes: b.notes, printed_at: b.printedAt, start_indices: b.startIndices || {}, end_indices: b.endIndices || {}, start_tank_levels: b.startTankLevels || {}, end_tank_levels: b.endTankLevels || {}, pompiste_data: b.pompisteData || {}, pompiste_assignments: b.pompisteAssignments || [], start_nozzle_indices: b.startNozzleIndices || {}, end_nozzle_indices: b.endNozzleIndices || {}, active_nozzle_ids: b.activeNozzleIds || [], can_reactivate: b.canReactivate ?? false, pompiste_pump_assignments: b.pompistePumpAssignments || [], versements: b.versements || [], ...(carriesArmoireMoves(b) ? brigadeArmoireColumns(b) : {}) });
         if (b.pompisteIds) { await supabase.from('brigade_pompiste_assignments').delete().eq('brigade_id', b.id); if (b.pompisteIds.length) await supabase.from('brigade_pompiste_assignments').insert(b.pompisteIds.map(pid => ({ brigade_id: b.id, pompiste_id: pid }))); }
+        // Éditer une brigade rejoue ses mouvements d'armoire : on rend ce qui
+        // avait été appliqué (lu en base), puis on écrit la nouvelle version.
+        if (carriesArmoireMoves(b)) {
+          await reverseBrigadeArmoireStock(b.id);
+          await writeBrigadeArmoireStock(b);
+        }
         break;
       }
       case 'DELETE_BRIGADE':
+        // Les armoires récupèrent d'abord ce que la brigade avait vendu / acheté.
+        await reverseBrigadeArmoireStock(action.payload);
         await cleanBrigadeDependencies(action.payload);
         await db.deleteBrigade(action.payload);
         break;
+
+      // ── Armoires ───────────────────────────────────────────────────────────
+      case 'ADD_ARMOIRE':
+        await db.addArmoire({ id: action.payload.id, name: action.payload.name, track_id: nz(action.payload.trackId), pump_ids: action.payload.pumpIds || [], notes: nz(action.payload.notes) });
+        break;
+      case 'UPDATE_ARMOIRE':
+        await db.updateArmoire(action.payload.id, { name: action.payload.name, track_id: nz(action.payload.trackId), pump_ids: action.payload.pumpIds || [], notes: nz(action.payload.notes), updated_at: new Date().toISOString() });
+        break;
+      case 'DELETE_ARMOIRE':
+        await db.deleteArmoire(action.payload);
+        break;
+
+      // ── Transferts Magasin → Armoire ───────────────────────────────────────
+      // Le stock du MAGASIN (biz_products) est déplacé par l'écran lui-même ;
+      // ici : l'en-tête, ses lignes et le stock de l'armoire (RPC atomique).
+      case 'ADD_STOCK_TRANSFER': {
+        const tr = action.payload;
+        await db.addStockTransfer(stockTransferRow(tr));
+        await db.addStockTransferItems(tr.items.map(i => stockTransferItemRow(tr.id, i)));
+        for (const l of transferLines(tr)) {
+          await db.adjustArmoireStock(tr.armoireId, l.productId, l.quantity, l.emptyQuantity || 0, tr.moduleKey);
+        }
+        break;
+      }
+      case 'UPDATE_STOCK_TRANSFER': {
+        const { transfer, previous } = action.payload;
+        for (const l of transferLines(previous)) {
+          await db.adjustArmoireStock(previous.armoireId, l.productId, -l.quantity, -(l.emptyQuantity || 0), previous.moduleKey);
+        }
+        await db.deleteStockTransferItems(transfer.id);
+        const { id: _id, ...row } = stockTransferRow(transfer);
+        await db.updateStockTransfer(transfer.id, { ...row, updated_at: new Date().toISOString() });
+        await db.addStockTransferItems(transfer.items.map(i => stockTransferItemRow(transfer.id, i)));
+        for (const l of transferLines(transfer)) {
+          await db.adjustArmoireStock(transfer.armoireId, l.productId, l.quantity, l.emptyQuantity || 0, transfer.moduleKey);
+        }
+        break;
+      }
+      case 'DELETE_STOCK_TRANSFER': {
+        const tr = action.payload;
+        for (const l of transferLines(tr)) {
+          await db.adjustArmoireStock(tr.armoireId, l.productId, -l.quantity, -(l.emptyQuantity || 0), tr.moduleKey);
+        }
+        await db.deleteStockTransfer(tr.id);
+        break;
+      }
       case 'UPDATE_BRIGADE_STATUS': await db.updateBrigade(action.payload.brigadeId, { is_active: action.payload.isActive, status: action.payload.status }); break;
       case 'ADD_BRIGADE_DECALAGE_ALERT': {
         const al = action.payload;
@@ -2464,6 +3069,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
             price_per_liter: j.pricePerLiter || 0,
             track_id: nz(j.trackId),
             pompiste_id: nz(j.pompisteId),
+            ...justifProductColumns(j),
           });
         }));
         // Save any TAG/TPE justifications as tpe_transactions rows (Caisse TPE)
@@ -2543,6 +3149,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
             price_per_liter: j.pricePerLiter || 0,
             track_id: nz(j.trackId),
             pompiste_id: nz(j.pompisteId),
+            ...justifProductColumns(j),
           });
         }));
         // Re-sync TAG/TPE transactions for this accounting (delete old, then re-insert)
@@ -2787,7 +3394,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
         await db.addDailyReport({ id: action.payload.id, date: action.payload.date, fuel_revenue: action.payload.fuelRevenue, shop_revenue: action.payload.shopRevenue, total_expenses: action.payload.totalExpenses, cash_to_deposit: action.payload.cashToDeposit, tank_variations: action.payload.tankVariations, brigade_ids: action.payload.brigadeIds });
         break;
       case 'SET_SETTINGS':
-        await db.saveSettings({ name: action.payload.name, logo_url: (action.payload as any).logoUrl || action.payload.logo, address: action.payload.address, phone: action.payload.phone, email: action.payload.email, fiscal_id: action.payload.fiscalId, rc: action.payload.rc, fuel_prices: action.payload.fuelPrices, fuel_buy_prices: action.payload.fuelBuyPrices || emptySettings.fuelBuyPrices, conversion_tables: action.payload.conversionTables, product_categories: action.payload.productCategories, expense_categories: action.payload.expenseCategories, product_units: action.payload.productUnits || DEFAULT_PRODUCT_UNITS, decalage_positif_actif: action.payload.decalagePositifActif, decalage_negatif_actif: action.payload.decalageNegatifActif, decalage_positif_seuil: action.payload.decalagePositifSeuil ?? 0, decalage_negatif_seuil: action.payload.decalageNegatifSeuil ?? 0 });
+        await db.saveSettings({ name: action.payload.name, logo_url: (action.payload as any).logoUrl || action.payload.logo, address: action.payload.address, phone: action.payload.phone, email: action.payload.email, fiscal_id: action.payload.fiscalId, rc: action.payload.rc, fuel_prices: action.payload.fuelPrices, fuel_buy_prices: action.payload.fuelBuyPrices || emptySettings.fuelBuyPrices, conversion_tables: action.payload.conversionTables, product_categories: action.payload.productCategories, expense_categories: action.payload.expenseCategories, product_units: action.payload.productUnits || DEFAULT_PRODUCT_UNITS, decalage_positif_actif: action.payload.decalagePositifActif, decalage_negatif_actif: action.payload.decalageNegatifActif, decalage_positif_seuil: action.payload.decalagePositifSeuil ?? 0, decalage_negatif_seuil: action.payload.decalageNegatifSeuil ?? 0, magasin1_name: nz(action.payload.magasin1Name), magasin2_name: nz(action.payload.magasin2Name), magasin2_enabled: !!action.payload.magasin2Enabled });
         break;
       case 'UPDATE_WORKER_ACOMPTE':
         await db.addWorkerAcompte({ id: action.payload.acompte.id, worker_type: action.payload.workerType, worker_id: action.payload.workerId, date: action.payload.acompte.date, amount: action.payload.acompte.amount, description: action.payload.acompte.description, is_paid: action.payload.acompte.isPaid, month_paid: action.payload.acompte.monthPaid });
@@ -2966,12 +3573,14 @@ async function refetchEntityAfterAction(
           const treasuryTransactions = ((await db.getTreasuryTransactions()) as any[]).map(mapTreasuryTx);
           const accounts = ((await db.getBankAccounts()) as any[]).map(mapBankAccount);
           dispatch({ type: 'HYDRATE', payload: {
+            ...(await loadArmoireData()),
             brigades, treasuryTransactions,
             bankAccounts: accounts.map(b => ({ ...b, balance: bankBalanceOf(b, treasuryTransactions) })),
           } });
           break;
         }
-        dispatch({ type: 'HYDRATE', payload: { brigades } });
+        // Le stock des armoires a pu bouger avec la brigade : on le relit aussi.
+        dispatch({ type: 'HYDRATE', payload: { brigades, ...(await loadArmoireData()) } });
         break;
       }
       // ── Fuel Sales ────────────────────────────────────────────────────────
@@ -3073,6 +3682,12 @@ async function refetchEntityAfterAction(
       case 'SET_SETTINGS': {
         const raw = await db.getSettings();
         if (raw) dispatch({ type: 'HYDRATE', payload: { settings: mapSettings(raw) } });
+        break;
+      }
+      // ── Armoires & transferts ─────────────────────────────────────────────
+      case 'ADD_ARMOIRE': case 'UPDATE_ARMOIRE': case 'DELETE_ARMOIRE':
+      case 'ADD_STOCK_TRANSFER': case 'UPDATE_STOCK_TRANSFER': case 'DELETE_STOCK_TRANSFER': {
+        dispatch({ type: 'HYDRATE', payload: await loadArmoireData() });
         break;
       }
       default: break;
@@ -3532,11 +4147,16 @@ export const AppProvider = ({ children }: AppProviderProps) => {
         // (espèces reçues, TPE/Tags, décalages par pompiste) and the dashboards.
         const brigadeAccountings = await safeQ('Brigade Accountings', loadBrigadeAccountingsWithJustifications);
 
+        // Armoires, leur stock, les transferts et les mouvements de brigade.
+        // `loadArmoireData` ne lève jamais (table absente => listes vides).
+        const armoireData = await loadArmoireData();
+
         if (cancelled) return;
 
         dispatch({
           type: 'HYDRATE',
           payload: {
+            ...armoireData,
             fuelSales, shopSales, deliveryNotes, purchases,
             fuelInvoices, fuelReceipts,
             expenses, inventories, dailyReports,
@@ -3647,6 +4267,8 @@ export const AppProvider = ({ children }: AppProviderProps) => {
         });
         return { deliveryNotes };
       },
+      // Relue aussi par le repli « sans websocket » (voir POLLED_TABLES).
+      armoire_stock: async () => loadArmoireData(),
       purchases: async () => {
         // Rebuild WITH sub-records — exactly like `delivery_notes` above. Mapping
         // the header alone dropped `items` and `payments` from EVERY achat as soon
@@ -3662,6 +4284,22 @@ export const AppProvider = ({ children }: AppProviderProps) => {
     };
 
     const unsubs: (() => void)[] = [];
+
+    // Armoires : un enregistrement de brigade ou de transfert touche plusieurs
+    // lignes d'un coup (une par produit). On regroupe la rafale en UNE relecture.
+    let armoireTimer: ReturnType<typeof setTimeout> | null = null;
+    const refetchArmoires = () => {
+      if (armoireTimer) clearTimeout(armoireTimer);
+      armoireTimer = setTimeout(async () => {
+        armoireTimer = null;
+        try { dispatch({ type: 'HYDRATE', payload: await loadArmoireData() }); }
+        catch (err) { console.error('[realtime] Refetch failed for armoires:', err); }
+      }, 700);
+    };
+    for (const table of ['armoires', 'armoire_stock', 'stock_transfers', 'stock_transfer_items', 'armoire_sales', 'armoire_purchases']) {
+      unsubs.push(subscribeTable(table, refetchArmoires));
+    }
+    unsubs.push(() => { if (armoireTimer) clearTimeout(armoireTimer); });
 
     for (const [table, sliceFn] of Object.entries(tableMap)) {
       unsubs.push(
@@ -3683,7 +4321,7 @@ export const AppProvider = ({ children }: AppProviderProps) => {
     // poll the volatile tables instead, and only while the tab is on screen.
     const POLLED_TABLES = [
       'tanks', 'products', 'fuel_sales', 'shop_sales', 'purchases',
-      'expenses', 'treasury_transactions', 'brigades', 'clients',
+      'expenses', 'treasury_transactions', 'brigades', 'clients', 'armoire_stock',
     ];
     const POLL_INTERVAL_MS = 60_000;
     const POLL_MIN_GAP_MS  = 20_000;
@@ -3810,6 +4448,13 @@ export const AppProvider = ({ children }: AppProviderProps) => {
       await refetchEntityAfterAction(action, dispatch);
     });
   }, [dispatch]);
+
+  // Noms des magasins + second magasin actif : appliqués AVANT le rendu des
+  // écrans, pour que chaque libellé (barre latérale, caisses, rapports) les lise.
+  useMemo(
+    () => syncMagasinLabels(state.settings),
+    [state.settings.magasin1Name, state.settings.magasin2Name, state.settings.magasin2Enabled],
+  );
 
   return (
     <StateContext.Provider value={state}>
@@ -4176,7 +4821,7 @@ export function useSupabaseDispatch() {
 
         // ── Settings ───────────────────────────────────────────────────────
         case 'SET_SETTINGS':
-          await db.saveSettings({ name: action.payload.name, logo_url: action.payload.logoUrl || action.payload.logo, address: action.payload.address, phone: action.payload.phone, email: action.payload.email, fiscal_id: action.payload.fiscalId, rc: action.payload.rc, fuel_prices: action.payload.fuelPrices, conversion_tables: action.payload.conversionTables, product_categories: action.payload.productCategories, expense_categories: action.payload.expenseCategories, product_units: action.payload.productUnits || DEFAULT_PRODUCT_UNITS, decalage_positif_actif: action.payload.decalagePositifActif, decalage_negatif_actif: action.payload.decalageNegatifActif, decalage_positif_seuil: action.payload.decalagePositifSeuil ?? 0, decalage_negatif_seuil: action.payload.decalageNegatifSeuil ?? 0 });
+          await db.saveSettings({ name: action.payload.name, logo_url: action.payload.logoUrl || action.payload.logo, address: action.payload.address, phone: action.payload.phone, email: action.payload.email, fiscal_id: action.payload.fiscalId, rc: action.payload.rc, fuel_prices: action.payload.fuelPrices, conversion_tables: action.payload.conversionTables, product_categories: action.payload.productCategories, expense_categories: action.payload.expenseCategories, product_units: action.payload.productUnits || DEFAULT_PRODUCT_UNITS, decalage_positif_actif: action.payload.decalagePositifActif, decalage_negatif_actif: action.payload.decalageNegatifActif, decalage_positif_seuil: action.payload.decalagePositifSeuil ?? 0, decalage_negatif_seuil: action.payload.decalageNegatifSeuil ?? 0, magasin1_name: nz(action.payload.magasin1Name), magasin2_name: nz(action.payload.magasin2Name), magasin2_enabled: !!action.payload.magasin2Enabled });
           break;
 
         // ── Payroll sub-records ────────────────────────────────────────────
