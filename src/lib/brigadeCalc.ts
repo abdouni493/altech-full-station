@@ -327,6 +327,16 @@ export function brigadePompisteGroups(
   assignments.forEach(a => { if (!orderedIds.includes(a.pompisteId)) orderedIds.push(a.pompisteId); });
   (brigade.pompisteIds || []).forEach(id => { if (!orderedIds.includes(id)) orderedIds.push(id); });
 
+  // Une pompe tenue par PLUSIEURS pompistes (assignations directes) : ses
+  // litres sont répartis à parts égales entre eux — la même règle que
+  // l'assistant de création.
+  const holders = new Map<string, number>();
+  (brigade.pompistePumpAssignments || []).forEach(a => {
+    const present = assignments.find(x => x.pompisteId === a.pompisteId)?.present ?? true;
+    if (!present) return;
+    new Set(a.pumpIds || []).forEach(id => holders.set(id, (holders.get(id) || 0) + 1));
+  });
+
   const claimed = new Set<string>();
   const groups: BrigadePompisteGroup[] = orderedIds.map(pompisteId => {
     const assignment = assignments.find(a => a.pompisteId === pompisteId);
@@ -334,9 +344,14 @@ export function brigadePompisteGroups(
     const pumpIds = new Set(pumpIdsOf(pompisteId));
     const mine = rows.filter(r => {
       const pumpId = r.pump?.id || r.nozzle.pumpId;
-      if (!pumpIds.has(pumpId) || claimed.has(r.nozzle.id)) return false;
+      if (!pumpIds.has(pumpId)) return false;
+      if ((holders.get(pumpId) || 0) > 1) { claimed.add(r.nozzle.id); return true; }
+      if (claimed.has(r.nozzle.id)) return false;
       claimed.add(r.nozzle.id);
       return true;
+    }).map(r => {
+      const n = holders.get(r.pump?.id || r.nozzle.pumpId) || 1;
+      return n > 1 ? { ...r, liters: r.liters / n, amount: r.amount / n } : r;
     });
     const pompiste = pompistes.find(p => p.id === pompisteId);
     const totalAmount = mine.reduce((s, r) => s + r.amount, 0);

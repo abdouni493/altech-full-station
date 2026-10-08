@@ -41,7 +41,7 @@ export const MERGE_COLLECTIONS: BizCollection[] = [
   'categories', 'marques', 'roles', 'products', 'purchases', 'sales',
   'clients', 'suppliers', 'workers', 'expenses', 'caisse', 'productions',
   'fiches', 'comptoir', 'destructions', 'reparations', 'sessions', 'payRequests',
-  'inventaires', 'messageTemplates', 'rappels',
+  'inventaires', 'messageTemplates', 'rappels', 'tables', 'tableOrders',
 ];
 
 /** Une pierre tombale plus vieille que ça ne sert plus à rien : on l'oublie. */

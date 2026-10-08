@@ -8,14 +8,14 @@ import {
   BarChart2, Archive, UserCog, DollarSign, Building2, ChevronRight, X,
   Wallet, CalendarCheck, Shield, UserCheck, Calendar,
   FlaskConical, Beaker, ShoppingBag, Car, Utensils, Coffee, Droplets, FileBarChart,
-  BellRing, Landmark, PiggyBank, MessageSquare, MessageCircle, Star, ArrowLeftRight
+  BellRing, Landmark, PiggyBank, MessageSquare, MessageCircle, Star, ArrowLeftRight, LayoutGrid
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { motion, AnimatePresence } from "motion/react";
 import { useAppState, UserPermissions, ModuleWorkerSession, AppUserRole } from "../store/AppContext";
 import { useBizAll } from "../store/BizContext";
 import { useFeedbacks } from "../store/FeedbackContext";
-import { MODULES, ModuleKey, activeModuleKeys } from "../lib/bizConfig";
+import { MODULES, ModuleKey, activeModuleKeys, hasTables } from "../lib/bizConfig";
 import { buildRappels, countDue } from "../lib/rappels";
 
 // --- Types ---
@@ -91,6 +91,7 @@ function buildModuleNavGroup(key: ModuleKey): NavGroup {
     }
     items.push({ label: "Point de vente",       icon: ShoppingBag, path: `${b}/pos` });
     items.push({ label: "Ventes",               icon: Receipt,     path: `${b}/sales` });
+    if (hasTables(key)) items.push({ label: "Gestion des tables", icon: LayoutGrid, path: `${b}/tables` });
     items.push({ label: "Clients",              icon: Users,       path: `${b}/clients` });
     items.push({ label: "Fournisseurs",         icon: Truck,       path: `${b}/suppliers` });
     items.push({ label: "Employés",             icon: UsersRound,  path: `${b}/workers` });
@@ -331,6 +332,7 @@ const PART_IFACE_NAV: Record<string, { label: string; icon: React.ElementType }>
   comptoir:    { label: "Comptoir",             icon: Beaker },
   pos:         { label: "Point de vente",       icon: ShoppingBag },
   sales:       { label: "Ventes",               icon: Receipt },
+  tables:      { label: "Gestion des tables",   icon: LayoutGrid },
   clients:     { label: "Clients",              icon: Users },
   suppliers:   { label: "Fournisseurs",         icon: Truck },
   workers:     { label: "Employés",             icon: UsersRound },

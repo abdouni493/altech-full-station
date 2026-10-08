@@ -2461,6 +2461,7 @@ $$;
 alter table public.brigades add column if not exists armoire_sales             jsonb not null default '[]'::jsonb;
 alter table public.brigades add column if not exists armoire_product_purchases jsonb not null default '[]'::jsonb;
 alter table public.brigades add column if not exists armoire_stock_snapshot    jsonb not null default '[]'::jsonb;
+alter table public.brigades add column if not exists magasin_product_moves     jsonb not null default '[]'::jsonb;
 
 -- Justificatif « ACHAT_PRODUIT » : produit, magasin d'origine, armoire, quantité,
 -- prix d'achat, fournisseur et — pour une bouteille — remplissage / bouteilles vides.

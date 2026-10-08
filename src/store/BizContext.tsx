@@ -113,7 +113,7 @@ function reducer(state: BizState, action: Action): BizState {
         [action.module]: {
           ...mod,
           deletedIds,
-          [action.coll]: [item, ...(mod[action.coll] as any[])],
+          [action.coll]: [item, ...((mod[action.coll] as any[]) || [])],
         },
       };
     }
@@ -124,7 +124,7 @@ function reducer(state: BizState, action: Action): BizState {
         ...state,
         [action.module]: {
           ...mod,
-          [action.coll]: (mod[action.coll] as any[]).map(x => (x.id === item.id ? item : x)),
+          [action.coll]: ((mod[action.coll] as any[]) || []).map(x => (x.id === item.id ? item : x)),
         },
       };
     }
@@ -139,7 +139,7 @@ function reducer(state: BizState, action: Action): BizState {
         [action.module]: {
           ...mod,
           deletedIds: { ...(mod.deletedIds || {}), [action.id]: nowIso() },
-          [action.coll]: (mod[action.coll] as any[]).filter(x => x.id !== action.id),
+          [action.coll]: ((mod[action.coll] as any[]) || []).filter(x => x.id !== action.id),
         },
       };
     }

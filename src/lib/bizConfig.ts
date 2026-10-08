@@ -58,7 +58,9 @@ export type BizCollection =
   | 'inventaires'
   | 'roles'
   | 'messageTemplates'
-  | 'rappels';
+  | 'rappels'
+  | 'tables'
+  | 'tableOrders';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1260,6 +1262,10 @@ export interface ModuleState {
   messageTemplates: BizMessageTemplate[];
   /** Alertes de rappel DÉJÀ traitées (lues ou envoyées) — voir `BizRappel`. */
   rappels: BizRappel[];
+  /** Gestion des tables (Restaurant / Cafétéria) : les tables de la salle. */
+  tables?: BizTable[];
+  /** Commandes passées à une table : en attente, encaissées ou annulées. */
+  tableOrders?: BizTableOrder[];
   /**
    * Order of the "accès rapide" tiles of the point de vente: the products that
    * sell the most, pinned by the user so they open the grid. Each entry is a
@@ -1398,6 +1404,87 @@ export function activeMagasinKeys(): ModuleKey[] {
   return MAGASIN_KEYS.filter(k => k !== 'magasin2' || magasin2Enabled);
 }
 
+// ─── Gestion des tables (Restaurant / Cafétéria) ──────────────────────────────
+
+/** Les parties qui servent à table. */
+export const hasTables = (key: ModuleKey): boolean => key === 'restaurant' || key === 'cafeteria';
+
+export interface BizTable {
+  id: string;
+  name: string;
+  /** Salle / zone : « Terrasse », « Salle 1 »… */
+  zone?: string;
+  /** Nombre de places. */
+  seats?: number;
+  notes?: string;
+  /** Une table désactivée n'est plus proposée au point de vente. */
+  inactive?: boolean;
+  createdAt: string;
+}
+
+/** Une ligne d'une commande de table — le même contenu qu'une ligne de panier. */
+export interface BizTableOrderLine {
+  id: string;
+  name: string;
+  unitPrice: number;
+  qty: number;
+  max: number;
+  unit?: string;
+  kind: 'comptoir' | 'product' | 'fiche';
+  unitCost: number;
+  detailCapacity?: number;
+  detailUnit?: string;
+  /** Note de cuisine (« sans oignon », « bien cuit »…). */
+  note?: string;
+}
+
+export type BizTableOrderStatus = 'pending' | 'completed' | 'cancelled';
+
+export interface BizTableOrderEvent {
+  at: string;
+  by: string;
+  action: 'création' | 'modification' | 'impression' | 'transfert' | 'encaissement' | 'annulation' | 'réouverture';
+  detail?: string;
+}
+
+export interface BizTableOrder {
+  id: string;
+  ref: string;
+  tableId: string;
+  tableName: string;
+  status: BizTableOrderStatus;
+  lines: BizTableOrderLine[];
+  clientId?: string;
+  clientName: string;
+  /** Nombre de couverts. */
+  covers?: number;
+  notes?: string;
+  /** Serveur / caissier qui a ouvert la table. */
+  serverName?: string;
+  createdAt: string;
+  updatedAt?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+  cancelReason?: string;
+  /** Vente créée à l'encaissement. */
+  saleId?: string;
+  saleRef?: string;
+  subtotal: number;
+  reduction?: number;
+  total: number;
+  paid?: number;
+  /** Nombre d'impressions du bon de table. */
+  printCount?: number;
+  history: BizTableOrderEvent[];
+}
+
+export const tableOrderSubtotal = (lines: BizTableOrderLine[]): number =>
+  lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);
+
+export const TABLE_ORDER_STATUS_LABEL: Record<BizTableOrderStatus, string> = {
+  pending: 'En attente', completed: 'Encaissée', cancelled: 'Annulée',
+};
+
 // Interfaces list shown in the worker "permissions" editor.
 export const MODULE_INTERFACES: { id: string; label: string }[] = [
   { id: 'stock', label: 'Gestion de stock' },
@@ -1407,6 +1494,7 @@ export const MODULE_INTERFACES: { id: string; label: string }[] = [
   { id: 'comptoir', label: 'Comptoir' },
   { id: 'pos', label: 'Point de vente' },
   { id: 'sales', label: 'Ventes' },
+  { id: 'tables', label: 'Gestion des tables' },
   { id: 'reparations', label: 'Vidanges & Lavage' },
   { id: 'encaissements', label: 'Demandes d\'encaissement' },
   { id: 'clients', label: 'Clients' },
@@ -1441,7 +1529,8 @@ export function interfacesForModule(key: ModuleKey): { id: string; label: string
     : [
         'stock', 'inventaire', 'purchases',
         ...(cfg.hasProduction ? ['production', 'comptoir'] : []),
-        'pos', 'sales', 'clients', 'suppliers', 'workers', 'expenses', 'caisse', 'reports',
+        'pos', 'sales', ...(hasTables(key) ? ['tables'] : []),
+        'clients', 'suppliers', 'workers', 'expenses', 'caisse', 'reports',
         'feedbacks',
       ];
   return ids

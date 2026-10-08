@@ -560,7 +560,36 @@ export interface Brigade {
   }>;
   /** Photo du stock de TOUTES les armoires prise à la création de la brigade. */
   armoireStockSnapshot?: BrigadeArmoireStockLine[];
+  /** Ventes / achats de produits faits DIRECTEMENT sur le stock d'un magasin
+   *  (sans passer par une armoire) pendant la brigade. Le stock du magasin est
+   *  décrémenté (vente) ou incrémenté (achat) à l'enregistrement. */
+  magasinProductMoves?: BrigadeMagasinMove[];
 }
+
+/** Un mouvement de produit d'un MAGASIN saisi dans la comptabilité d'une brigade. */
+export interface BrigadeMagasinMove {
+  kind: 'VENTE' | 'ACHAT';
+  moduleKey: MagasinKey;
+  pompisteId: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  /** Vente : prix de vente unitaire ; achat : prix d'achat unitaire. */
+  price: number;
+  total: number;
+  unitCost?: number;
+  /** Vente d'une bouteille de gaz : PLEINE → VIDE (total inchangé). */
+  consigne?: boolean;
+  /** Achat d'une bouteille de gaz : REMPLISSAGE (vide → plein) ou VIDE (contenants en plus). */
+  consigneMode?: ConsigneMode;
+  supplierName?: string;
+}
+
+/** Delta de stock MAGASIN (total / vides) d'un mouvement de brigade. */
+export const magasinMoveStockLine = (m: BrigadeMagasinMove): StockLine =>
+  m.kind === 'VENTE'
+    ? armoireSaleStockLine({ productId: m.productId, quantity: m.quantity, consigne: m.consigne })
+    : armoirePurchaseStockLine({ productId: m.productId, quantity: m.quantity, consigneMode: m.consigneMode });
 
 export interface BrigadeAccountingJustification {
   id: string;
@@ -2282,7 +2311,7 @@ function mapMagasinWorker(r: any): MagasinWorker {
   return { id: r.id, name: r.name, phone: r.phone, email: r.email, cin: r.cin, address: r.address, photo: r.photo_url, photoUrl: r.photo_url, status: r.status, baseSalary: +r.base_salary, salaryType: r.salary_type ?? undefined, workDays: r.work_days ?? undefined, cnasDate: r.cnas_date ?? undefined, hasAccess: r.has_access, username: r.username, authUserId: r.auth_user_id ?? undefined, permissions: r.permissions || {}, hireDate: r.hire_date, paymentRecord: [], acomptes: [], absences: [] };
 }
 function mapBrigade(r: any): Brigade {
-  return { id: r.id, createdAt: r.created_at ?? undefined, date: r.date, shift: r.shift, chefId: r.chef_id, status: r.status, startTimestamp: r.start_timestamp, endTimestamp: r.end_timestamp, startTime: r.start_time, endTime: r.end_time, startDatetime: r.start_datetime, endDatetime: r.end_datetime, isActive: r.is_active, notes: r.notes, printedAt: r.printed_at, pompisteIds: [], startIndices: r.start_indices || {}, endIndices: r.end_indices || {}, startTankLevels: r.start_tank_levels || {}, endTankLevels: r.end_tank_levels || {}, pompisteData: r.pompiste_data || {}, pompisteAssignments: r.pompiste_assignments || [], startNozzleIndices: r.start_nozzle_indices || {}, endNozzleIndices: r.end_nozzle_indices || {}, activeNozzleIds: r.active_nozzle_ids || [], canReactivate: r.can_reactivate ?? false, pompistePumpAssignments: r.pompiste_pump_assignments || [], versements: r.versements || [], armoireSales: r.armoire_sales || [], armoireProductPurchases: r.armoire_product_purchases || [], armoireStockSnapshot: r.armoire_stock_snapshot || [] };
+  return { id: r.id, createdAt: r.created_at ?? undefined, date: r.date, shift: r.shift, chefId: r.chef_id, status: r.status, startTimestamp: r.start_timestamp, endTimestamp: r.end_timestamp, startTime: r.start_time, endTime: r.end_time, startDatetime: r.start_datetime, endDatetime: r.end_datetime, isActive: r.is_active, notes: r.notes, printedAt: r.printed_at, pompisteIds: [], startIndices: r.start_indices || {}, endIndices: r.end_indices || {}, startTankLevels: r.start_tank_levels || {}, endTankLevels: r.end_tank_levels || {}, pompisteData: r.pompiste_data || {}, pompisteAssignments: r.pompiste_assignments || [], startNozzleIndices: r.start_nozzle_indices || {}, endNozzleIndices: r.end_nozzle_indices || {}, activeNozzleIds: r.active_nozzle_ids || [], canReactivate: r.can_reactivate ?? false, pompistePumpAssignments: r.pompiste_pump_assignments || [], versements: r.versements || [], armoireSales: r.armoire_sales || [], armoireProductPurchases: r.armoire_product_purchases || [], armoireStockSnapshot: r.armoire_stock_snapshot || [], magasinProductMoves: r.magasin_product_moves || [] };
 }
 
 // ─── Armoires : mappers ────────────────────────────────────────────────────────
@@ -2758,6 +2787,7 @@ function brigadeArmoireColumns(b: Brigade) {
     armoire_sales: b.armoireSales || [],
     armoire_product_purchases: b.armoireProductPurchases || [],
     armoire_stock_snapshot: b.armoireStockSnapshot || [],
+    magasin_product_moves: b.magasinProductMoves || [],
   };
 }
 

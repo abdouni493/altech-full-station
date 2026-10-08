@@ -41,7 +41,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn, newId, matchesSearch } from "@/src/lib/utils";
-import { useAppState, useAppDispatch, useModulePermission, Brigade, Pump, Tank, Pompiste, Client, BrigadeDecalageAlert, BrigadeAccounting, BrigadeAccountingJustification, nozzleTankId, pumpTankIds, pumpsInCreationOrder, nozzlesInCreationOrder, CAISSE_ID, ConsigneMode, MagasinKey, BrigadeArmoireStockLine, armoireSaleStockLine, armoirePurchaseStockLine } from "../store/AppContext";
+import { useAppState, useAppDispatch, useModulePermission, Brigade, Pump, Tank, Pompiste, Client, BrigadeDecalageAlert, BrigadeAccounting, BrigadeAccountingJustification, nozzleTankId, pumpTankIds, pumpsInCreationOrder, nozzlesInCreationOrder, CAISSE_ID, ConsigneMode, MagasinKey, BrigadeArmoireStockLine, armoireSaleStockLine, armoirePurchaseStockLine, BrigadeMagasinMove, magasinMoveStockLine } from "../store/AppContext";
+import { useMagasinStockMover } from "../components/armoires/StockTransferBuilder";
 import { useBizAll } from "../store/BizContext";
 import { BizProduct, detailPrice, roundQty, activeMagasinKeys } from "../lib/bizConfig";
 import { magasinProducts, findMagasinProduct, searchMagasinProducts, armoiresOfPompiste, magasinLabel } from "../lib/armoires";
@@ -157,6 +158,10 @@ type ArmoireSaleLine = {
   consigne?: boolean;
 };
 
+/** Préfixe d'une source « magasin » dans le champ `armoireId` d'une ligne produit. */
+const MAG_PREFIX = 'MAG:';
+const isMagSrc = (id?: string) => !!id && id.startsWith(MAG_PREFIX);
+
 const Brigades = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -209,6 +214,8 @@ const Brigades = () => {
     id: string; amount: number; at: string; notes?: string;
   }>>>({});
   const [chefAsPompiste, setChefAsPompiste] = useState(false);
+  /** Recherche de l'étape 1 (pompistes). */
+  const [wizPompisteSearch, setWizPompisteSearch] = useState('');
   const [chefPisteId, setChefPisteId] = useState('');
   const [canReactivate, setCanReactivate] = useState(false);
 
@@ -339,16 +346,34 @@ const Brigades = () => {
   const [productTab, setProductTab] = useState<Record<string, 'achat' | 'vente'>>({});
   /** Recherche de l'onglet ACHAT, par pompiste. */
   const [productPurchaseSearch, setProductPurchaseSearch] = useState<Record<string, string>>({});
+  /** Source choisie (armoire ou `MAG:<magasin>`) des produits, par pompiste. */
+  const [productSource, setProductSource] = useState<Record<string, string>>({});
 
   /** Montant d'une ligne de vente : au détail = qté détaillée × prix du détail. */
   const armoireLineTotal = (x: ArmoireSaleLine) => (x.detailQty ? x.detailQty * x.price : x.quantity * x.price);
   /** Ventes produits (armoire) d'un pompiste — elles s'ajoutent à ce qu'il doit rendre. */
   const armoireSaleTotal = (pid: string) => (pompisteArmoireSales[pid] || []).reduce((a, x) => a + armoireLineTotal(x), 0);
-  const armoireStockQty = (armoireId: string, productId: string) =>
-    (armoireStock.find(st => st.armoireId === armoireId && st.productId === productId)?.quantity ?? 0);
-  /** Bouteilles VIDES d'un produit consigné dans une armoire. */
-  const armoireEmptyQty = (armoireId: string, productId: string) =>
-    (armoireStock.find(st => st.armoireId === armoireId && st.productId === productId)?.emptyQuantity ?? 0);
+  // ── Source d'un produit : une ARMOIRE, ou directement un MAGASIN ─────────────
+  // Une ligne de vente / d'achat porte dans `armoireId` soit l'id d'une armoire,
+  // soit `MAG:<magasin>` : le produit est alors pris (ou rangé) directement dans
+  // le stock du magasin choisi, sans passer par une armoire.
+  const magSrcId = (k: MagasinKey) => `${MAG_PREFIX}${k}`;
+  const magKeyOfSrc = (id: string) => id.slice(MAG_PREFIX.length) as MagasinKey;
+  const magasinProductOf = (k: MagasinKey, productId: string): BizProduct | undefined =>
+    ((biz?.[k]?.products || []) as BizProduct[]).find(p => p.id === productId);
+  const sourceName = (id?: string) => !id ? '' : isMagSrc(id) ? magasinLabel(magKeyOfSrc(id)) : (armoires.find(a => a.id === id)?.name || 'armoire');
+  const magasinSources = (activeMagasinKeys() as MagasinKey[]).map(k => ({ id: magSrcId(k), key: k, name: magasinLabel(k) }));
+  const moveMagasinStock = useMagasinStockMover();
+
+  const armoireStockQty = (armoireId: string, productId: string) => {
+    if (isMagSrc(armoireId)) return magasinProductOf(magKeyOfSrc(armoireId), productId)?.currentQty ?? 0;
+    return armoireStock.find(st => st.armoireId === armoireId && st.productId === productId)?.quantity ?? 0;
+  };
+  /** Bouteilles VIDES d'un produit consigné dans une armoire (ou un magasin). */
+  const armoireEmptyQty = (armoireId: string, productId: string) => {
+    if (isMagSrc(armoireId)) return magasinProductOf(magKeyOfSrc(armoireId), productId)?.emptyQty ?? 0;
+    return armoireStock.find(st => st.armoireId === armoireId && st.productId === productId)?.emptyQuantity ?? 0;
+  };
 
   // ── Stock AVANT la brigade éditée ───────────────────────────────────────────
   // En ÉDITION, le stock courant de l'armoire porte DÉJÀ les ventes / achats de
@@ -370,6 +395,10 @@ const Brigades = () => {
     (editingBrigade.armoireProductPurchases || []).forEach(x => {
       const l = armoirePurchaseStockLine(x);
       add(x.armoireId, x.productId, l.quantity, l.emptyQuantity || 0);
+    });
+    (editingBrigade.magasinProductMoves || []).forEach(x => {
+      const l = magasinMoveStockLine(x);
+      add(`${MAG_PREFIX}${x.moduleKey}`, x.productId, l.quantity, l.emptyQuantity || 0);
     });
     return m;
   }, [editingBrigade]);
@@ -642,6 +671,10 @@ const Brigades = () => {
       const tankNozzles = pumpNozzles.filter(n => n.status === 'Actif' && nozzleTankId(n, pumps) === tank.id);
       tankThroughput[tank.id] = tankNozzles.reduce((s, n) => s + Math.max(0, endNozzleIdx(n) - startNozzleIdx(n)), 0);
     });
+    // Une pompe peut être tenue par PLUSIEURS pompistes : ses litres sont alors
+    // répartis à parts égales entre eux, et leur comptabilité se lit ensemble.
+    const holders: Record<string, number> = {};
+    presentAssignments.forEach(a => pumpsOf(a.pompisteId).forEach(id => { holders[id] = (holders[id] || 0) + 1; }));
     return presentAssignments.map(a => {
       const myPumpIds = pumpsOf(a.pompisteId);
       const myPumps = pumps.filter(p => myPumpIds.includes(p.id));
@@ -660,7 +693,7 @@ const Brigades = () => {
         if (tankId && retourCuveByTank[tankId] && tankThroughput[tankId] > 0) {
           nLiters -= retourCuveByTank[tankId] * (nLiters / tankThroughput[tankId]);
         }
-        nLiters = Math.max(0, nLiters);
+        nLiters = Math.max(0, nLiters) / Math.max(1, holders[n.pumpId] || 1);
         litersSold += nLiters;
         theoretical += nLiters * price;
         if (!byFuel[fuel]) byFuel[fuel] = { liters: 0, price, amount: 0 };
@@ -680,6 +713,7 @@ const Brigades = () => {
         trackId: '',
         trackName: myPumps.map(p => p.name || p.number).join(', ') || '—',
         pumpNames: myPumps.map(p => p.name || p.number),
+        sharedPumpIds: myPumpIds.filter(id => (holders[id] || 0) > 1),
         fuelType: fuelKeys.length ? fuelKeys.join(' + ') : primaryFuel,
         primaryFuel,
         byFuel,
@@ -795,20 +829,49 @@ const Brigades = () => {
       const brigadeId = isEdit ? editingBrigade!.id : newId();
 
       // ── Produits — Armoire : ventes (débitées de l'armoire) ─────────────────
-      const armoireSalesPayload = (Object.entries(pompisteArmoireSales) as Array<[string, ArmoireSaleLine[]]>).flatMap(([pid, list]) =>
-        (list || []).filter(x => x.quantity > 0).map(x => ({
+      const allSaleLines = (Object.entries(pompisteArmoireSales) as Array<[string, ArmoireSaleLine[]]>).flatMap(([pid, list]) =>
+        (list || []).filter(x => x.quantity > 0).map(x => ({ pid, x })));
+      // Ventes faites DIRECTEMENT sur le stock d'un magasin.
+      const magasinSaleMoves: BrigadeMagasinMove[] = allSaleLines.filter(({ x }) => isMagSrc(x.armoireId)).map(({ pid, x }) => ({
+        kind: 'VENTE', moduleKey: magKeyOfSrc(x.armoireId), pompisteId: pid, productId: x.productId,
+        productName: x.productName, quantity: x.quantity, price: x.price, total: armoireLineTotal(x),
+        unitCost: x.unitCost, consigne: !!x.consigne,
+      }));
+      const armoireSalesPayload = allSaleLines.filter(({ x }) => !isMagSrc(x.armoireId)).map(({ pid, x }) => ({
           armoireId: x.armoireId, pompisteId: pid, productId: x.productId,
           productName: x.productName, moduleKey: x.moduleKey || moduleOfProduct(x.productId),
           quantity: x.quantity, price: x.price, total: armoireLineTotal(x),
           unitCost: x.unitCost,
           // Bouteille de gaz : elle reste dans l'armoire et passe de PLEINE à VIDE.
           consigne: !!x.consigne,
-        })));
+        }));
 
       // ── Produits — Armoire : achats réglés sur la caisse (justificatifs) ────
+      const magasinPurchaseMoves: BrigadeMagasinMove[] = (Object.entries(pompisteJustifications) as Array<[string, WizardJustification[]]>)
+        .flatMap(([pid, list]) => (list || [])
+          .filter(j => j.type === 'ACHAT_PRODUIT' && j.productId && isMagSrc(j.armoireId) && (j.quantity || 0) > 0)
+          .map(j => ({
+            kind: 'ACHAT' as const, moduleKey: magKeyOfSrc(j.armoireId!), pompisteId: pid, productId: j.productId!,
+            productName: j.productName || '', quantity: j.quantity || 0, price: j.unitPrice || 0,
+            total: (j.quantity || 0) * (j.unitPrice || 0), supplierName: j.supplierName || undefined,
+            consigneMode: j.consigneMode,
+          })));
+      const magasinProductMoves = [...magasinSaleMoves, ...magasinPurchaseMoves];
+      // Stock des magasins : on rend ce que l'ancienne version avait pris, puis
+      // on applique la nouvelle — en UNE écriture par produit.
+      const toMover = (m: BrigadeMagasinMove, sign: number) => {
+        const l = magasinMoveStockLine(m);
+        // Le « mover » RETIRE ce qu'on lui passe : un delta positif s'inverse.
+        return { moduleKey: m.moduleKey, productId: m.productId, qty: -l.quantity * sign, empty: -(l.emptyQuantity || 0) * sign };
+      };
+      moveMagasinStock([
+        ...(isEdit ? (editingBrigade!.magasinProductMoves || []).map(m => toMover(m, -1)) : []),
+        ...magasinProductMoves.map(m => toMover(m, +1)),
+      ]);
+
       const armoirePurchasesPayload = (Object.entries(pompisteJustifications) as Array<[string, WizardJustification[]]>)
         .flatMap(([pid, list]) => (list || [])
-          .filter(j => j.type === 'ACHAT_PRODUIT' && j.productId && j.armoireId && (j.quantity || 0) > 0)
+          .filter(j => j.type === 'ACHAT_PRODUIT' && j.productId && j.armoireId && !isMagSrc(j.armoireId) && (j.quantity || 0) > 0)
           .map(j => ({
             armoireId: j.armoireId!, pompisteId: pid, productId: j.productId!,
             productName: j.productName || '', moduleKey: j.moduleKey || moduleOfProduct(j.productId),
@@ -913,8 +976,8 @@ const Brigades = () => {
               notes: j.description || undefined, liters: 0, pricePerLiter: 0,
               trackId: s.trackId, pompisteId: s.pompisteId,
               productId: j.productId, productName: j.productName,
-              moduleKey: j.moduleKey || moduleOfProduct(j.productId),
-              armoireId: j.armoireId, quantity: j.quantity || 0,
+              moduleKey: isMagSrc(j.armoireId) ? magKeyOfSrc(j.armoireId!) : (j.moduleKey || moduleOfProduct(j.productId)),
+              armoireId: isMagSrc(j.armoireId) ? undefined : j.armoireId, quantity: j.quantity || 0,
               unitPrice: j.unitPrice || 0, supplierName: j.supplierName,
               consigneMode: j.consigneMode,
             });
@@ -1006,6 +1069,7 @@ const Brigades = () => {
         armoireSales: armoireSalesPayload,
         armoireProductPurchases: armoirePurchasesPayload,
         armoireStockSnapshot,
+        magasinProductMoves,
       };
       dispatch({ type: isEdit ? 'UPDATE_BRIGADE' : 'ADD_BRIGADE', payload: newBrigade });
 
@@ -1379,7 +1443,9 @@ const Brigades = () => {
         // Achat produit → armoire : produit, armoire, quantité, prix, consigne.
         ...(type === 'ACHAT_PRODUIT' ? {
           productId: j.productId, productName: j.productName, moduleKey: j.moduleKey,
-          armoireId: j.armoireId, quantity: j.quantity, unitPrice: j.unitPrice,
+          // Achat rangé directement en magasin : pas d'armoire, le magasin fait foi.
+          armoireId: j.armoireId || (j.moduleKey && (b.magasinProductMoves || []).some(m => m.kind === 'ACHAT' && m.productId === j.productId) ? `${MAG_PREFIX}${j.moduleKey}` : undefined),
+          quantity: j.quantity, unitPrice: j.unitPrice,
           supplierName: j.supplierName, consigneMode: j.consigneMode,
           description: j.notes || '',
         } : {}),
@@ -1398,6 +1464,15 @@ const Brigades = () => {
         // Une vente déjà enregistrée l'a été en connaissance de cause : on ne
         // la rebloque pas sur un stock qui a bougé depuis.
         allowNegative: true,
+      });
+    });
+    // Ventes faites directement sur le stock d'un magasin.
+    (b.magasinProductMoves || []).filter(m => m.kind === 'VENTE').forEach(m => {
+      if (!m.pompisteId) return;
+      (saleMap[m.pompisteId] = saleMap[m.pompisteId] || []).push({
+        productId: m.productId, productName: m.productName, moduleKey: m.moduleKey,
+        armoireId: `${MAG_PREFIX}${m.moduleKey}`, quantity: m.quantity, price: m.price,
+        unitCost: m.unitCost, consigne: !!m.consigne, allowNegative: true,
       });
     });
     setPompisteArmoireSales(saleMap);
@@ -2299,12 +2374,12 @@ const Brigades = () => {
           const orderedNozzlesOfPump = (pumpId: string) =>
             nozzlesInCreationOrder(pumpNozzles.filter(n => n.pumpId === pumpId));
 
-          // A pompe may not be held by two pompistes at once.
           const pumpUsage: Record<string, number> = {};
           presentAssignments.forEach(a => pumpsOf(a.pompisteId).forEach(id => { pumpUsage[id] = (pumpUsage[id] || 0) + 1; }));
           const step2MissingPump = presentAssignments.some(a => pumpsOf(a.pompisteId).length === 0);
-          const step2DuplicatePump = Object.values(pumpUsage).some(n => n > 1);
-          const step2Valid = presentAssignments.length > 0 && !step2MissingPump && !step2DuplicatePump;
+          // Plusieurs pompistes peuvent tenir la MÊME pompe : leurs litres sont
+          // partagés à parts égales et leur comptabilité se fait ensemble.
+          const step2Valid = presentAssignments.length > 0 && !step2MissingPump;
 
           // A brigade can be saved WITHOUT the cash each pompiste handed over: it
           // is then kept "En attente" until the amounts are entered.
@@ -2411,8 +2486,23 @@ const Brigades = () => {
                         </div>
                       )}
 
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="relative flex-1">
+                          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <input value={wizPompisteSearch} onChange={e => setWizPompisteSearch(e.target.value)}
+                            placeholder="Rechercher un pompiste (nom / téléphone)…"
+                            className="w-full h-11 pl-10 pr-3 rounded-xl border-2 border-slate-200 bg-white text-sm font-bold outline-none focus:border-[#FFB800]" />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setWizPompisteIds(pompistes.filter(p => p.status === 'Actif').map(p => p.id))}
+                            className="h-11 px-4 rounded-xl bg-[#001f5c] text-white text-[10px] font-black uppercase tracking-widest hover:bg-[#003087]">Tout sélectionner</button>
+                          <button type="button" onClick={() => setWizPompisteIds([])}
+                            className="h-11 px-4 rounded-xl bg-slate-100 text-slate-600 text-[10px] font-black uppercase tracking-widest hover:bg-slate-200">Aucun</button>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                        {pompistes.filter(p => p.status === 'Actif').map(p => {
+                        {pompistes.filter(p => p.status === 'Actif' && matchesSearch(wizPompisteSearch, p.name, p.phone || '')).map(p => {
                           const on = wizPompisteIds.includes(p.id);
                           return (
                             <motion.button
@@ -2460,9 +2550,7 @@ const Brigades = () => {
 
                       {!step2Valid && (
                         <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-[11px] font-bold text-red-700">
-                          {step2MissingPump
-                            ? "Chaque pompiste doit tenir au moins une pompe."
-                            : "Une même pompe ne peut pas etre tenue par deux pompistes."}
+                          Chaque pompiste présent doit tenir au moins une pompe.
                         </div>
                       )}
 
@@ -2496,13 +2584,17 @@ const Brigades = () => {
                               {!isAbsent && (
                                 <div>
                                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">
-                                    Pompes tenues (plusieurs possibles) — de la première créée à la dernière
+                                    Pompes tenues (plusieurs possibles) — une pompe peut aussi être PARTAGÉE entre plusieurs pompistes
                                   </label>
                                   <div className="flex flex-wrap gap-2">
                                     {orderedPumps.map(pump => {
                                       const on = mine.includes(pump.id);
-                                      const takenByOther = !on && Object.keys(pompistePumps)
-                                        .some(other => other !== pid && (pompistePumps[other] || []).includes(pump.id));
+                                      // Pompe déjà tenue par d'autres : elle reste sélectionnable,
+                                      // elle sera PARTAGÉE (litres et comptabilité en commun).
+                                      const sharedWith = presentAssignments
+                                        .filter(a => a.pompisteId !== pid && pumpsOf(a.pompisteId).includes(pump.id))
+                                        .map(a => pompistes.find(x => x.id === a.pompisteId)?.name || '—');
+                                      const takenByOther = false;
                                       const cuves = pumpTankIds(pump.id, pumpNozzles, pumps)
                                         .map(id => tanks.find(t => t.id === id)?.name).filter(Boolean).join(', ');
                                       return (
@@ -2517,12 +2609,22 @@ const Brigades = () => {
                                             on ? "bg-[#001f5c] text-white border-[#001f5c] shadow-sm"
                                                : takenByOther ? "bg-slate-100 text-slate-300 border-slate-100 cursor-not-allowed"
                                                : "bg-white text-slate-600 border-slate-200 hover:border-[#003087]")}
-                                          title={takenByOther ? "Déjà tenue par un autre pompiste" : undefined}
+                                          title={sharedWith.length ? `Aussi tenue par : ${sharedWith.join(', ')}` : undefined}
                                         >
                                           {pump.number} · {pump.name}
+                                          {sharedWith.length > 0 && (
+                                            <span className={cn("ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase", on ? "bg-[#FFB800] text-[#001f5c]" : "bg-amber-100 text-amber-700")}>
+                                              👥 {on ? 'Partagée' : `+${sharedWith.length}`}
+                                            </span>
+                                          )}
                                           <span className={cn("block text-[9px] font-medium", on ? "text-[#FFB800]" : "text-slate-400")}>
                                             {cuves || 'aucune cuve'}
                                           </span>
+                                          {sharedWith.length > 0 && (
+                                            <span className={cn("block text-[8px] font-bold truncate max-w-[10rem]", on ? "text-blue-200" : "text-amber-600")}>
+                                              avec {sharedWith.join(', ')}
+                                            </span>
+                                          )}
                                         </button>
                                       );
                                     })}
@@ -2892,7 +2994,7 @@ const Brigades = () => {
                       )}
                       {/* SUB-SECTION A: Résumé des ventes par piste */}
                       <div className="space-y-2">
-                        <h4 className="text-[10px] font-black text-[#002d87] uppercase tracking-widest">Résumé des ventes par piste</h4>
+                        <h4 className="text-[10px] font-black text-[#002d87] uppercase tracking-widest">Résumé des ventes par pompiste</h4>
                         <div className="overflow-x-auto rounded-2xl border-2 border-slate-100">
                           <table className="w-full text-left text-[11px]">
                             <thead className="bg-slate-50 text-slate-500 uppercase text-[9px] font-black">
@@ -2904,7 +3006,7 @@ const Brigades = () => {
                             <tbody className="divide-y divide-slate-100">
                               {pompisteSales.map(s => (
                                 <tr key={s.pompisteId} className="font-bold text-slate-700">
-                                  <td className="px-3 py-2">{s.name}</td>
+                                  <td className="px-3 py-2">{s.name}{(s.sharedPumpIds || []).length > 0 && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase">👥 Partagé</span>}</td>
                                   <td className="px-3 py-2">{s.trackName}</td>
                                   <td className="px-3 py-2">{s.fuelType}</td>
                                   <td className="px-3 py-2 text-right tabular-nums">{s.litersSold.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</td>
@@ -2920,6 +3022,92 @@ const Brigades = () => {
                           </table>
                         </div>
                       </div>
+
+                      {/* SUB-SECTION A bis : Comptabilité COMMUNE des pompistes qui
+                          partagent une pompe. Leurs litres sont répartis à parts
+                          égales ; on lit ici leur bilan ensemble (à rendre, remis,
+                          justifié, écart) avec exactement les mêmes calculs. */}
+                      {(() => {
+                        const shared = pompisteSales.filter(x => (x.sharedPumpIds || []).length > 0);
+                        if (shared.length === 0) return null;
+                        // Équipes = composantes connexes « partage une pompe avec ».
+                        const teams: string[][] = [];
+                        const seen = new Set<string>();
+                        shared.forEach(start => {
+                          if (seen.has(start.pompisteId)) return;
+                          const team: string[] = [];
+                          const queue = [start.pompisteId];
+                          while (queue.length) {
+                            const id = queue.shift()!;
+                            if (seen.has(id)) continue;
+                            seen.add(id); team.push(id);
+                            const mine = pompisteSales.find(x => x.pompisteId === id)?.sharedPumpIds || [];
+                            shared.forEach(o => { if (!seen.has(o.pompisteId) && (o.sharedPumpIds || []).some(pid => mine.includes(pid))) queue.push(o.pompisteId); });
+                          }
+                          teams.push(team);
+                        });
+                        const fmt = (n: number) => n.toLocaleString('fr-FR', { maximumFractionDigits: 0 });
+                        const bilan = (pid: string) => {
+                          const sale = pompisteSales.find(x => x.pompisteId === pid)!;
+                          const cash = (pompistePayments[pid] ?? 0) + (versements[pid] || []).reduce((a, v) => a + (v.amount || 0), 0);
+                          const justified = (pompisteJustifications[pid] || []).reduce((a, j) => a + (j.amount || 0), 0);
+                          const due = sale.theoretical + armoireSaleTotal(pid);
+                          return { name: sale.name, liters: sale.litersSold, due, cash, justified, ecart: due - cash - justified };
+                        };
+                        return (
+                          <div className="space-y-2">
+                            <h4 className="text-[10px] font-black text-[#002d87] uppercase tracking-widest flex items-center gap-1.5">
+                              <Users className="w-3.5 h-3.5" /> Comptabilité commune — pompes partagées
+                            </h4>
+                            {teams.map((team, i) => {
+                              const rows = team.map(bilan);
+                              const tot = rows.reduce((a, r) => ({ liters: a.liters + r.liters, due: a.due + r.due, cash: a.cash + r.cash, justified: a.justified + r.justified, ecart: a.ecart + r.ecart }), { liters: 0, due: 0, cash: 0, justified: 0, ecart: 0 });
+                              const pumpNames = [...new Set(team.flatMap(pid => pompisteSales.find(x => x.pompisteId === pid)?.sharedPumpIds || []))]
+                                .map(id => pumps.find(p => p.id === id)).filter(Boolean).map(p => `${p!.number} · ${p!.name}`).join(', ');
+                              return (
+                                <div key={i} className="rounded-2xl border-2 border-amber-200 bg-gradient-to-br from-amber-50 to-white overflow-hidden">
+                                  <div className="px-3 py-2 flex items-center justify-between gap-2 flex-wrap border-b border-amber-100">
+                                    <p className="text-xs font-black text-amber-900">👥 Équipe {i + 1} · {rows.map(r => r.name).join(' + ')}</p>
+                                    <span className="text-[9px] font-black text-amber-700 uppercase">Pompe(s) partagée(s) : {pumpNames}</span>
+                                  </div>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-[11px]">
+                                      <thead className="text-[9px] uppercase text-slate-400 font-black">
+                                        <tr><th className="px-3 py-1.5 text-left">Pompiste</th><th className="px-3 py-1.5 text-right">Litres</th><th className="px-3 py-1.5 text-right">À rendre</th><th className="px-3 py-1.5 text-right">Remis</th><th className="px-3 py-1.5 text-right">Justifié</th><th className="px-3 py-1.5 text-right">Écart</th></tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-amber-100 font-bold text-slate-700">
+                                        {rows.map(r => (
+                                          <tr key={r.name}>
+                                            <td className="px-3 py-1.5">{r.name}</td>
+                                            <td className="px-3 py-1.5 text-right tabular-nums">{r.liters.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</td>
+                                            <td className="px-3 py-1.5 text-right tabular-nums text-blue-700">{fmt(r.due)}</td>
+                                            <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">{fmt(r.cash)}</td>
+                                            <td className="px-3 py-1.5 text-right tabular-nums text-purple-700">{fmt(r.justified)}</td>
+                                            <td className={cn("px-3 py-1.5 text-right tabular-nums", r.ecart > 0.01 ? "text-red-600" : r.ecart < -0.01 ? "text-green-600" : "text-slate-500")}>{fmt(r.ecart)}</td>
+                                          </tr>
+                                        ))}
+                                        <tr className="bg-amber-100/60 font-black text-amber-900">
+                                          <td className="px-3 py-1.5">TOTAL ÉQUIPE</td>
+                                          <td className="px-3 py-1.5 text-right tabular-nums">{tot.liters.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</td>
+                                          <td className="px-3 py-1.5 text-right tabular-nums">{fmt(tot.due)}</td>
+                                          <td className="px-3 py-1.5 text-right tabular-nums">{fmt(tot.cash)}</td>
+                                          <td className="px-3 py-1.5 text-right tabular-nums">{fmt(tot.justified)}</td>
+                                          <td className={cn("px-3 py-1.5 text-right tabular-nums", tot.ecart > 0.01 ? "text-red-600" : tot.ecart < -0.01 ? "text-green-700" : "")}>{fmt(tot.ecart)}</td>
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                  <p className="px-3 py-1.5 text-[9px] font-bold text-amber-700">
+                                    {Math.abs(tot.ecart) <= 0.01
+                                      ? "✓ L'équipe est en règle : les écarts individuels se compensent."
+                                      : tot.ecart > 0 ? `L'équipe doit encore ${fmt(tot.ecart)} DZD — à justifier par l'un ou l'autre.` : `L'équipe a remis ${fmt(-tot.ecart)} DZD de plus que dû.`}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
 
                       {/* SUB-SECTION B: Encaissements par pompiste */}
                       <div className="space-y-3">
@@ -2951,8 +3139,33 @@ const Brigades = () => {
                           const defaultArmoireIds = (myArmoires.length > 0 ? myArmoires : armoires).map(a => a.id);
                           const primaryArmoireId = defaultArmoireIds[0] || '';
                           /** L'armoire qui a ce produit en stock, sinon la première. */
-                          const armoireForProduct = (productId: string) =>
-                            defaultArmoireIds.find(aid => baseArmoireStockQty(aid, productId) > 0) || primaryArmoireId;
+                          const chosenSource = productSource[s.pompisteId] || '';
+                          const setChosenSource = (id: string) => setProductSource(prev => ({ ...prev, [s.pompisteId]: id }));
+                          const fallbackSource = primaryArmoireId || magasinSources[0]?.id || '';
+                          /** La source choisie ; sinon l'armoire qui a ce produit en stock, sinon le magasin du produit. */
+                          const armoireForProduct = (productId: string) => {
+                            if (chosenSource) return chosenSource;
+                            const withStock = defaultArmoireIds.find(aid => baseArmoireStockQty(aid, productId) > 0);
+                            if (withStock) return withStock;
+                            if (!primaryArmoireId) { const k = moduleOfProduct(productId); if (k) return magSrcId(k); }
+                            return fallbackSource;
+                          };
+                          /** Options d'un sélecteur de source : armoires puis magasins. */
+                          const sourceOptions = (productId?: string, unit = '') => (<>
+                            {myArmoires.length > 0 && (
+                              <optgroup label="Armoires de ses pompes">
+                                {myArmoires.map(a => <option key={a.id} value={a.id}>{a.name}{productId ? ` · stock ${roundQty(baseArmoireStockQty(a.id, productId)).toLocaleString('fr-FR')} ${unit}` : ''}</option>)}
+                              </optgroup>
+                            )}
+                            {otherArmoires.length > 0 && (
+                              <optgroup label="Autres armoires de la station">
+                                {otherArmoires.map(a => <option key={a.id} value={a.id}>{a.name}{productId ? ` · stock ${roundQty(baseArmoireStockQty(a.id, productId)).toLocaleString('fr-FR')} ${unit}` : ''}</option>)}
+                              </optgroup>
+                            )}
+                            <optgroup label="Magasins (stock direct)">
+                              {magasinSources.map(m => <option key={m.id} value={m.id}>🏬 {m.name}{productId ? ` · stock ${roundQty(baseArmoireStockQty(m.id, productId)).toLocaleString('fr-FR')} ${unit}` : ''}</option>)}
+                            </optgroup>
+                          </>);
                           const prodTab = productTab[s.pompisteId] || 'vente';
                           const setProdTab = (t: 'achat' | 'vente') => setProductTab(prev => ({ ...prev, [s.pompisteId]: t }));
                           const showMagasin = activeMagasinKeys().length > 1;
@@ -3151,16 +3364,40 @@ const Brigades = () => {
                                   reste dans l'armoire et passe de PLEINE à VIDE).
                                   Achat : réglé sur la caisse de la brigade, il justifie le
                                   décalage et entre en stock dans l'armoire choisie. */}
-                              {armoires.length > 0 ? (
+                              {(armoires.length > 0 || magasinSources.length > 0) ? (
                                 <div className="rounded-xl border-2 border-slate-200 overflow-hidden bg-white">
                                   <div className="flex items-center justify-between gap-2 px-3 pt-3 flex-wrap">
                                     <p className="text-[10px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-1.5">
-                                      <Package className="w-3.5 h-3.5 text-indigo-500" /> Produits — Armoire
+                                      <Package className="w-3.5 h-3.5 text-indigo-500" /> Produits — Armoire / Magasin
                                       {myArmoires.length > 0 && <span className="normal-case tracking-normal text-slate-400 font-bold">· {myArmoires.map(a => a.name).join(', ')}</span>}
                                     </p>
                                     <div className="text-[9px] font-black flex gap-1">
                                       {prodTotal > 0 && <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Vente {prodTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}</span>}
                                       {purchaseTotal > 0 && <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">Achat {purchaseTotal.toLocaleString('fr-FR', { maximumFractionDigits: 0 })}</span>}
+                                    </div>
+                                  </div>
+                                  {/* Source des produits : une armoire de la piste, ou directement
+                                      le stock d'un magasin. Le stock choisi est décrémenté (vente)
+                                      ou incrémenté (achat) à l'enregistrement de la brigade. */}
+                                  <div className="px-2.5 pt-2.5">
+                                    <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Source des produits</p>
+                                    <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+                                      <button type="button" onClick={() => setChosenSource('')}
+                                        className={cn("shrink-0 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase border-2 transition-all", !chosenSource ? "border-[#001f5c] bg-[#001f5c] text-white" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300")}>
+                                        Auto
+                                      </button>
+                                      {[...myArmoires, ...otherArmoires].map(a => (
+                                        <button key={a.id} type="button" onClick={() => setChosenSource(a.id)}
+                                          className={cn("shrink-0 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase border-2 transition-all", chosenSource === a.id ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-indigo-300")}>
+                                          🗄️ {a.name}
+                                        </button>
+                                      ))}
+                                      {magasinSources.map(m => (
+                                        <button key={m.id} type="button" onClick={() => setChosenSource(m.id)}
+                                          className={cn("shrink-0 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase border-2 transition-all", chosenSource === m.id ? "border-amber-500 bg-amber-500 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-amber-300")}>
+                                          🏬 {m.name}
+                                        </button>
+                                      ))}
                                     </div>
                                   </div>
                                   <div className="flex gap-1.5 p-2.5">
@@ -3201,7 +3438,7 @@ const Brigades = () => {
                                                     {showMagasin && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 uppercase">{magasinLabel(moduleKey)}</span>}
                                                   </p>
                                                   <p className="text-[9px] text-slate-400 font-bold">
-                                                    {product.consigneActive ? 'Pleines' : 'Stock'} {armoires.find(a => a.id === armoireId)?.name || 'armoire'} : <span className={cn(avail <= 0 && "text-red-500")}>{roundQty(avail).toLocaleString('fr-FR')} {product.unit || ''}</span>
+                                                    {product.consigneActive ? 'Pleines' : 'Stock'} {sourceName(armoireId)} : <span className={cn(avail <= 0 && "text-red-500")}>{roundQty(avail).toLocaleString('fr-FR')} {product.unit || ''}</span>
                                                     {product.consigneActive && <> · vides : {roundQty(effectiveArmoireEmptyAvail(armoireId, product.id)).toLocaleString('fr-FR')}</>} ·{' '}
                                                     {product.sellByDetail && product.detailCapacity
                                                       ? `${detailPrice(product).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} DA / ${product.detailUnit || 'unité'}`
@@ -3228,7 +3465,7 @@ const Brigades = () => {
                                             const prodUnit = product?.unit || '';
                                             const remaining = avail - ps.quantity;
                                             const boughtHere = ps.consigne ? wizardFilledQty(ps.armoireId, ps.productId) : wizardPurchasedQty(ps.armoireId, ps.productId);
-                                            const armoireName = armoires.find(a => a.id === ps.armoireId)?.name;
+                                            const armoireName = sourceName(ps.armoireId);
                                             return (
                                               <div key={`${ps.armoireId}-${ps.productId}`}
                                                 className={cn("rounded-xl border p-2 space-y-1.5", over && !ps.allowNegative ? "border-red-300 bg-red-50/60" : "border-slate-100 bg-slate-50/50")}>
@@ -3240,7 +3477,7 @@ const Brigades = () => {
                                                       {ps.consigne && <span className="ml-1.5 text-[8px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 uppercase">Plein → Vide</span>}
                                                     </p>
                                                     <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                                                      {armoires.length > 1 ? (
+                                                      {true ? (
                                                         <select value={ps.armoireId}
                                                           onChange={e => {
                                                             const next = e.target.value;
@@ -3248,7 +3485,7 @@ const Brigades = () => {
                                                             patchProdSale(ps.armoireId, ps.productId, { armoireId: next });
                                                           }}
                                                           className="h-6 px-1 rounded-md border border-slate-200 bg-white text-[9px] font-bold outline-none">
-                                                          {armoires.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                                                          {sourceOptions()}
                                                         </select>
                                                       ) : <span className="text-[8px] font-bold text-slate-400">{armoireName}</span>}
                                                       <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded-full uppercase", avail <= 0 ? "bg-red-100 text-red-600" : "bg-emerald-100 text-emerald-700")}>{ps.consigne ? 'Pleines' : 'Dispo'} : {roundQty(avail).toLocaleString('fr-FR')} {prodUnit}</span>
@@ -3314,7 +3551,7 @@ const Brigades = () => {
                                   {/* ─── Onglet ACHAT ─── */}
                                   {prodTab === 'achat' && (
                                     <div className="p-3 pt-0 space-y-2">
-                                      <p className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg p-2">Le fournisseur a livré au pompiste, réglé sur la caisse de la brigade → la quantité rentre en stock dans l'armoire.</p>
+                                      <p className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg p-2">Le fournisseur a livré au pompiste, réglé sur la caisse de la brigade → la quantité rentre en stock dans l'armoire ou le magasin choisi. Bouteilles de gaz : remplissage (vide → plein) ou achat de bouteilles vides.</p>
                                       <div className="relative">
                                         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
                                         <input placeholder="Rechercher un produit acheté (nom / code-barres)…" value={purchaseSearch}
@@ -3423,10 +3660,13 @@ const Brigades = () => {
                                                 )}
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                                                   <div>
-                                                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-0.5">Armoire de destination</label>
+                                                    <label className="text-[8px] font-black text-slate-400 uppercase block mb-0.5">Destination (armoire ou magasin)</label>
                                                     <select value={j.armoireId || ''} onChange={e => patchJustif(j.id, { armoireId: e.target.value || undefined })}
                                                       className={cn("w-full h-9 px-1.5 rounded-lg border font-bold text-[11px] outline-none bg-white", !j.armoireId ? "border-red-300 text-red-600" : "border-slate-200")}>
-                                                      <option value="">— Choisir une armoire —</option>
+                                                      <option value="">— Choisir une destination —</option>
+                                                      <optgroup label="Magasins (stock direct)">
+                                                        {magasinSources.map(m => <option key={m.id} value={m.id}>🏬 {m.name}{j.productId ? ` · stock ${roundQty(baseArmoireStockQty(m.id, j.productId)).toLocaleString('fr-FR')} ${prodUnit}` : ''}</option>)}
+                                                      </optgroup>
                                                       {myArmoires.length > 0 && (
                                                         <optgroup label="Armoires de ses pompes">
                                                           {myArmoires.map(a => (
@@ -3450,7 +3690,7 @@ const Brigades = () => {
                                                   </div>
                                                 </div>
                                                 <div className="flex items-center justify-between">
-                                                  {!j.armoireId && <span className="text-[9px] font-bold text-red-600">Choisissez une armoire pour rentrer le stock.</span>}
+                                                  {!j.armoireId && <span className="text-[9px] font-bold text-red-600">Choisissez une armoire ou un magasin pour rentrer le stock.</span>}
                                                   <span className="ml-auto text-[10px] font-black text-indigo-700">Total : {((j.quantity || 0) * (j.unitPrice || 0)).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD</span>
                                                 </div>
                                               </div>
@@ -4023,6 +4263,12 @@ const Brigades = () => {
             // reprend les siens.
             const backDeltas = brigadeTankDeltas(selectedBrigade, null, pumpNozzles, pumps);
             if (backDeltas.length) dispatch({ type: 'ADJUST_TANK_LEVELS', payload: backDeltas });
+            // Les ventes / achats faits directement en magasin sont annulés.
+            const magMoves = selectedBrigade.magasinProductMoves || [];
+            if (magMoves.length) moveMagasinStock(magMoves.map(m => {
+              const l = magasinMoveStockLine(m);
+              return { moduleKey: m.moduleKey, productId: m.productId, qty: l.quantity, empty: l.emptyQuantity || 0 };
+            }));
             dispatch({ type: 'DELETE_BRIGADE', payload: selectedBrigade.id });
             const back = brigadeLiters(selectedBrigade, pumpNozzles, pumps);
             dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: back > 0

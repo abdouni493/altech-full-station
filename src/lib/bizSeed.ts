@@ -31,7 +31,7 @@ const emptyModule = (): ModuleState => ({
   clients: [], suppliers: [], workers: [], expenses: [], caisse: [], productions: [],
   fiches: [], comptoir: [], destructions: [], reparations: [],
   sessions: [], payRequests: [], inventaires: [], posPinned: [],
-  messageTemplates: [], rappels: [],
+  messageTemplates: [], rappels: [], tables: [], tableOrders: [],
 });
 
 /**

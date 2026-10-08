@@ -44,7 +44,7 @@ import AppErrorBoundary from "./components/AppErrorBoundary";
 
 // ─── Business modules (Cafétéria / Magasin) ───────────────────────
 import { BizProvider } from "./store/BizContext";
-import { MODULES, ModuleKey, isMagasin2Enabled } from "./lib/bizConfig";
+import { MODULES, ModuleKey, isMagasin2Enabled, hasTables } from "./lib/bizConfig";
 import ModuleStock from "./pages/modules/ModuleStock";
 import ModuleInventaire from "./pages/modules/ModuleInventaire";
 import ModulePurchases from "./pages/modules/ModulePurchases";
@@ -52,6 +52,7 @@ import ModuleProduction from "./pages/modules/ModuleProduction";
 import ModuleComptoir from "./pages/modules/ModuleComptoir";
 import ModulePOS from "./pages/modules/ModulePOS";
 import ModuleSales from "./pages/modules/ModuleSales";
+import ModuleTables from "./pages/modules/ModuleTables";
 import ModuleClients from "./pages/modules/ModuleClients";
 import ModuleSuppliers from "./pages/modules/ModuleSuppliers";
 import ModuleWorkers from "./pages/modules/ModuleWorkers";
@@ -97,6 +98,7 @@ function buildModuleRoutes(key: ModuleKey): ModuleRoute[] {
     }
     add('pos', <ModulePOS moduleKey={key} />);
     add('sales', <ModuleSales moduleKey={key} />);
+    if (hasTables(key)) add('tables', <ModuleTables moduleKey={key} />);
     add('clients', <ModuleClients moduleKey={key} />);
     add('suppliers', <ModuleSuppliers moduleKey={key} />);
     add('workers', <ModuleWorkers moduleKey={key} />);

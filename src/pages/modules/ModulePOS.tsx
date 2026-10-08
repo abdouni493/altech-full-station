@@ -44,7 +44,9 @@ import {
   ShoppingBag, Search, Plus, Minus, X, User, UserPlus, Percent, Check, Package,
   PlayCircle, StopCircle, Lock, Beaker, Layers, Wallet, AlertTriangle, Printer,
   Star, ArrowUp, ArrowDown, ListOrdered, Zap, Users, Monitor, MonitorOff, ScanLine,
+  LayoutGrid, Clock, ArrowLeftRight, Ban, Utensils, Save, StickyNote,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { newId, matchesSearch } from '@/src/lib/utils';
 import {
@@ -52,7 +54,9 @@ import {
   detailPrice, discountOf, posPinKey, isSellableProduct, roundQty, formatQty,
   isReversedSale, netCashOfSale, BizProductRef, BizProductCar,
   productRefLabel, productCarLabel, productSearchFields, isMagasinKey,
+  hasTables, BizTable, BizTableOrder, tableOrderSubtotal,
 } from '@/src/lib/bizConfig';
+import { nextTableOrderRef, tableEvent, elapsedLabel, printTableOrder } from './tableShared';
 import { useBiz } from '@/src/store/BizContext';
 import { useBizPermission, useAppState } from '@/src/store/AppContext';
 import { useBizSessions } from '@/src/hooks/useBizSessions';
@@ -183,6 +187,27 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
   // Le ticket qui vient d'être encaissé : l'afficheur montre le remerciement et
   // la monnaie à rendre jusqu'au premier article du panier suivant.
   const [lastReceipt, setLastReceipt] = useState<CustomerDisplayState['receipt']>(null);
+
+  // ── Gestion des tables (Restaurant / Cafétéria) ───────────────────────────
+  // « Vente directe » : le comptoir habituel. « Table » : le panier devient la
+  // NOTE d'une table — mise en attente, imprimée en bon de table, modifiée,
+  // puis encaissée quand le client paie (ou annulée).
+  const withTables = hasTables(moduleKey);
+  const tables: BizTable[] = (biz.state.tables || []).filter(t => !t.inactive);
+  const tableOrders: BizTableOrder[] = biz.state.tableOrders || [];
+  const pendingOrders = tableOrders.filter(o => o.status === 'pending')
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const [saleMode, setSaleMode] = useState<'direct' | 'table'>('direct');
+  const [tableId, setTableId] = useState('');
+  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+  const [covers, setCovers] = useState('');
+  const [orderNotes, setOrderNotes] = useState('');
+  const [showTablePicker, setShowTablePicker] = useState(false);
+  const [cancelOrder, setCancelOrder] = useState<BizTableOrder | null>(null);
+  const [transferOrder, setTransferOrder] = useState<BizTableOrder | null>(null);
+  const activeOrder = activeOrderId ? tableOrders.find(o => o.id === activeOrderId) || null : null;
+  const pendingOfTable = (id: string) => pendingOrders.find(o => o.tableId === id);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   // ── Sellable catalogue ────────────────────────────────────────────────────
   const source = useMemo<Source[]>(() => {
@@ -574,6 +599,157 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
     setAskPrint(sale);
   };
 
+  // ── Commandes de table ────────────────────────────────────────────────────
+  const resetTable = () => {
+    setActiveOrderId(null); setTableId(''); setCovers(''); setOrderNotes('');
+    setCart([]); setDiscountMode('none'); setDiscountStr(''); setPaidStr(''); setClientId(''); setPassage(true);
+  };
+
+  /** Ouvre la note d'une table dans le panier, pour la compléter ou l'encaisser. */
+  const loadOrder = (o: BizTableOrder) => {
+    setSaleMode('table');
+    setActiveOrderId(o.id);
+    setTableId(o.tableId);
+    setCart(o.lines.map(l => ({ ...l })));
+    setPassage(!o.clientId); setClientId(o.clientId || '');
+    setCovers(o.covers ? String(o.covers) : '');
+    setOrderNotes(o.notes || '');
+    setDiscountMode('none'); setDiscountStr(''); setPaidStr('');
+    setLastReceipt(null);
+  };
+
+  /** Choisir une table : sa note en attente s'ouvre, sinon une nouvelle commence. */
+  const pickTable = (t: BizTable) => {
+    const pending = pendingOfTable(t.id);
+    setShowTablePicker(false);
+    if (pending) { loadOrder(pending); toast(`Note de ${t.name} ouverte`); return; }
+    setSaleMode('table');
+    setActiveOrderId(null);
+    setTableId(t.id);
+    setCovers(t.seats ? String(t.seats) : '');
+    setOrderNotes('');
+  };
+
+  // Ouverture directe depuis l'écran « Gestion des tables » (?order=…).
+  useEffect(() => {
+    const id = searchParams.get('order');
+    if (!id) return;
+    const o = tableOrders.find(x => x.id === id);
+    if (!o) return;
+    if (o.status === 'pending') loadOrder(o);
+    const next = new URLSearchParams(searchParams); next.delete('order');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, tableOrders.length]);
+
+  /** Met la note de la table en attente (création ou mise à jour). */
+  const saveTableOrder = (andPrint: boolean) => {
+    if (!mySession) { toast.error('Ouvrez votre session de travail'); return; }
+    if (!perm.creer) { toast.error("Vous n'avez pas le droit d'enregistrer une commande"); return; }
+    const table = (biz.state.tables || []).find(t => t.id === tableId);
+    if (!table) { toast.error('Choisissez une table'); setShowTablePicker(true); return; }
+    if (cart.length === 0) { toast.error('Ajoutez au moins un article à la note'); return; }
+    if (!passage && !clientId) { toast.error('Sélectionnez un client'); return; }
+    const other = pendingOfTable(table.id);
+    if (other && other.id !== activeOrderId) { toast.error(`${table.name} a déjà une note en attente (${other.ref})`); return; }
+    const client = clients.find(c => c.id === clientId);
+    const by = currentUserName || 'Admin';
+    const sub = tableOrderSubtotal(cart);
+    const base = {
+      tableId: table.id, tableName: table.name,
+      lines: cart.map(l => ({ ...l })),
+      clientId: passage ? undefined : clientId,
+      clientName: passage ? 'Client de passage' : (client?.name || '—'),
+      covers: Number(covers) || undefined,
+      notes: orderNotes.trim() || undefined,
+      subtotal: sub, total: sub,
+      updatedAt: new Date().toISOString(),
+    };
+    let saved: BizTableOrder;
+    if (activeOrder) {
+      const diff = cart.length !== activeOrder.lines.length || sub !== activeOrder.subtotal
+        ? `${activeOrder.lines.length} → ${cart.length} article(s), ${money(activeOrder.subtotal)} → ${money(sub)}` : undefined;
+      saved = {
+        ...activeOrder, ...base,
+        printCount: (activeOrder.printCount || 0) + (andPrint ? 1 : 0),
+        history: [...(activeOrder.history || []), tableEvent('modification', by, diff),
+          ...(andPrint ? [tableEvent('impression', by, 'Bon de table')] : [])],
+      };
+      biz.update('tableOrders', saved);
+    } else {
+      saved = {
+        id: newId(), ref: nextTableOrderRef(tableOrders), status: 'pending',
+        serverName: mySession.workerName || by,
+        createdAt: new Date().toISOString(),
+        printCount: andPrint ? 1 : 0,
+        history: [tableEvent('création', by, `${cart.length} article(s) — ${money(sub)}`),
+          ...(andPrint ? [tableEvent('impression', by, 'Bon de table')] : [])],
+        ...base,
+      };
+      biz.add('tableOrders', saved);
+    }
+    if (andPrint) printTableOrder(saved, settings);
+    toast.success(`${table.name} — note ${saved.ref} en attente (${money(sub)})`);
+    resetTable();
+  };
+
+  /** Le client paie : la note devient une vente (stock déduit), la table se libère. */
+  const finalizeTableOrder = () => {
+    if (!mySession) { toast.error('Ouvrez votre session de travail pour encaisser'); return; }
+    if (!perm.creer) { toast.error("Vous n'avez pas le droit d'enregistrer une vente"); return; }
+    if (!activeOrder) return;
+    if (cart.length === 0) { toast.error('La note est vide — annulez-la plutôt'); return; }
+    if (!passage && !clientId) { toast.error('Sélectionnez un client'); return; }
+    if (passage && rest > 0) { toast.error('Un client est requis pour une vente à crédit'); return; }
+    const client = clients.find(c => c.id === clientId);
+    const clientName = passage ? 'Client de passage' : (client?.name || '—');
+    const sale = registerSale({
+      lines: cart,
+      reduction: discountAmount,
+      discountType: discountMode === 'none' ? undefined : discountMode,
+      discountValue: discountMode === 'none' ? undefined : Number(discountStr) || 0,
+      paid,
+      clientId: passage ? undefined : clientId,
+      clientName: `${clientName} · ${activeOrder.tableName}`,
+    });
+    const by = currentUserName || 'Admin';
+    biz.update('tableOrders', {
+      ...activeOrder,
+      lines: cart.map(l => ({ ...l })),
+      clientId: passage ? undefined : clientId, clientName,
+      covers: Number(covers) || undefined, notes: orderNotes.trim() || undefined,
+      status: 'completed', completedAt: sale.date, updatedAt: sale.date,
+      saleId: sale.id, saleRef: sale.ref,
+      subtotal: sale.subtotal, reduction: sale.reduction, total: sale.total, paid: sale.paid,
+      history: [...(activeOrder.history || []), tableEvent('encaissement', by, `${sale.ref} — ${money(sale.total)}`)],
+    });
+    toast.success(`${activeOrder.tableName} encaissée — ${money(sale.total)}`);
+    setLastReceipt({ total, paid, change: Math.max(0, paid - total) });
+    resetTable();
+    setAskPrint(sale);
+  };
+
+  const doCancelOrder = (o: BizTableOrder, reason: string) => {
+    const by = currentUserName || 'Admin';
+    const at = new Date().toISOString();
+    biz.update('tableOrders', {
+      ...o, status: 'cancelled', cancelledAt: at, updatedAt: at, cancelReason: reason || undefined,
+      history: [...(o.history || []), tableEvent('annulation', by, reason || undefined)],
+    });
+    if (activeOrderId === o.id) resetTable();
+    toast.success(`Note ${o.ref} (${o.tableName}) annulée`);
+  };
+
+  const doTransferOrder = (o: BizTableOrder, target: BizTable) => {
+    if (pendingOfTable(target.id)) { toast.error(`${target.name} a déjà une note en attente`); return; }
+    biz.update('tableOrders', {
+      ...o, tableId: target.id, tableName: target.name, updatedAt: new Date().toISOString(),
+      history: [...(o.history || []), tableEvent('transfert', currentUserName || 'Admin', `${o.tableName} → ${target.name}`)],
+    });
+    if (activeOrderId === o.id) setTableId(target.id);
+    toast.success(`Note ${o.ref} transférée vers ${target.name}`);
+  };
+
   const doPrint = (sale: BizSale) => {
     const client = clients.find(c => c.id === sale.clientId);
     printInvoice({
@@ -946,6 +1122,78 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
 
         {/* Panier & encaissement — épinglé : il ne défile jamais avec les produits */}
         <div className="lg:min-h-0 lg:overflow-y-auto custom-scrollbar space-y-4 lg:pb-1">
+          {withTables && (
+            <div className="card-glass p-3 space-y-3">
+              <div className="flex gap-2">
+                <button onClick={() => { if (activeOrder) resetTable(); setSaleMode('direct'); setTableId(''); }}
+                  className={`flex-1 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ${saleMode === 'direct' ? 'bg-[#003087] text-white' : 'bg-slate-100 text-slate-500'}`}>
+                  <ShoppingBag className="w-3.5 h-3.5" /> Vente directe
+                </button>
+                <button onClick={() => { setSaleMode('table'); if (!tableId) setShowTablePicker(true); }}
+                  className={`flex-1 py-2 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 ${saleMode === 'table' ? 'bg-[#FFB800] text-[#001f5c]' : 'bg-slate-100 text-slate-500'}`}>
+                  <Utensils className="w-3.5 h-3.5" /> Service à table
+                </button>
+              </div>
+
+              {saleMode === 'table' && (
+                <div className="space-y-2">
+                  <button onClick={() => setShowTablePicker(true)}
+                    className={`w-full p-3 rounded-xl border-2 text-left flex items-center gap-3 transition-colors ${tableId ? 'border-[#FFB800] bg-amber-50' : 'border-dashed border-slate-300 hover:border-[#FFB800]'}`}>
+                    <div className="w-10 h-10 rounded-xl bg-[#001f5c] text-[#FFB800] flex items-center justify-center shrink-0"><LayoutGrid className="w-5 h-5" /></div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-black text-slate-800 truncate">
+                        {tableId ? ((biz.state.tables || []).find(t => t.id === tableId)?.name || 'Table') : 'Choisir une table'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {activeOrder
+                          ? `Note ${activeOrder.ref} · ouverte depuis ${elapsedLabel(activeOrder.createdAt)} · ${activeOrder.serverName || ''}`
+                          : tableId ? 'Nouvelle note' : `${tables.length} table(s) · ${pendingOrders.length} occupée(s)`}
+                      </p>
+                    </div>
+                    {activeOrder && <Badge tone="warning">En attente</Badge>}
+                  </button>
+                  {tableId && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase text-slate-400">Couverts</label>
+                        <input type="number" min={0} value={covers} onChange={e => setCovers(e.target.value)} className="input-field !py-1.5 mt-0.5" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-[10px] font-bold uppercase text-slate-400">Note de commande</label>
+                        <input value={orderNotes} onChange={e => setOrderNotes(e.target.value)} placeholder="Allergies, cuisson…" className="input-field !py-1.5 mt-0.5" />
+                      </div>
+                    </div>
+                  )}
+                  {activeOrder && (
+                    <div className="flex gap-1.5 flex-wrap">
+                      <button className="btn-secondary !py-1.5 !px-2.5 !text-[11px]" onClick={() => setTransferOrder(activeOrder)}><ArrowLeftRight className="w-3.5 h-3.5" /> Changer de table</button>
+                      <button className="btn-secondary !py-1.5 !px-2.5 !text-[11px]" onClick={() => printTableOrder({ ...activeOrder, lines: cart, subtotal, total: subtotal }, settings)}><Printer className="w-3.5 h-3.5" /> Bon</button>
+                      <button className="btn-secondary !py-1.5 !px-2.5 !text-[11px] !text-red-600" onClick={() => setCancelOrder(activeOrder)}><Ban className="w-3.5 h-3.5" /> Annuler</button>
+                      <button className="btn-secondary !py-1.5 !px-2.5 !text-[11px]" onClick={resetTable}><X className="w-3.5 h-3.5" /> Fermer</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Les notes ouvertes : un clic les rouvre pour compléter ou encaisser. */}
+              {pendingOrders.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black uppercase text-slate-400 mb-1.5 flex items-center gap-1.5"><Clock className="w-3 h-3" /> Tables en attente ({pendingOrders.length})</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                    {pendingOrders.map(o => (
+                      <button key={o.id} onClick={() => loadOrder(o)}
+                        className={`w-full flex items-center gap-2 p-2 rounded-xl text-left border transition-colors ${o.id === activeOrderId ? 'border-[#FFB800] bg-amber-50' : 'border-slate-100 bg-slate-50 hover:border-amber-300'}`}>
+                        <span className="px-2 py-1 rounded-lg bg-[#001f5c] text-[#FFB800] text-[11px] font-black shrink-0">{o.tableName}</span>
+                        <span className="flex-1 min-w-0 text-[11px] text-slate-500 truncate">{o.ref} · {o.lines.length} art. · {elapsedLabel(o.createdAt)}</span>
+                        <span className="text-xs font-black tabular-nums text-[#002d87]">{money(o.total)}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="card-glass p-4">
             <div className="mb-3">
               <div className="flex gap-2 mb-2">
@@ -1049,10 +1297,30 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
                 </span>
               </div>
             )}
+            {withTables && saleMode === 'table' ? (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <button className="btn-secondary w-full" onClick={() => saveTableOrder(false)} disabled={!perm.creer || !mySession}>
+                    <Save className="w-4 h-4" /> {activeOrder ? 'Mettre à jour' : 'Mettre en attente'}
+                  </button>
+                  <button className="btn-secondary w-full" onClick={() => saveTableOrder(true)} disabled={!perm.creer || !mySession}>
+                    <Printer className="w-4 h-4" /> + Bon de table
+                  </button>
+                </div>
+                {activeOrder ? (
+                  <button className="btn-primary w-full" onClick={finalizeTableOrder} disabled={!perm.creer || !mySession}>
+                    <Check className="w-4 h-4" /> Encaisser la table — {money(total)}
+                  </button>
+                ) : (
+                  <p className="text-[11px] text-slate-400 text-center">La note reste ouverte : encaissez-la quand le client vient payer.</p>
+                )}
+              </div>
+            ) : (
             <button className="btn-primary w-full" onClick={checkout} disabled={!perm.creer || !mySession}
               title={mySession ? (perm.creer ? undefined : "Vous n'avez pas le droit d'enregistrer une vente") : 'Ouvrez votre session de travail'}>
               <Check className="w-4 h-4" /> Valider la vente
             </button>
+            )}
           </div>
         </div>
       </div>
@@ -1095,6 +1363,22 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
         <CloseSessionModal moduleKey={moduleKey} session={mySession} onClose={() => setShowClose(false)} />
       )}
 
+      {showTablePicker && (
+        <TablePickerModal tables={tables} pendingOf={pendingOfTable} currentId={tableId}
+          onPick={pickTable} onClose={() => setShowTablePicker(false)} />
+      )}
+      {transferOrder && (
+        <TablePickerModal title={`Transférer ${transferOrder.ref} (${transferOrder.tableName})`}
+          tables={tables.filter(t => t.id !== transferOrder.tableId)} pendingOf={pendingOfTable} currentId=""
+          onPick={t => { doTransferOrder(transferOrder, t); setTransferOrder(null); }}
+          onClose={() => setTransferOrder(null)} />
+      )}
+      {cancelOrder && (
+        <CancelOrderModal order={cancelOrder}
+          onConfirm={reason => { doCancelOrder(cancelOrder, reason); setCancelOrder(null); }}
+          onClose={() => setCancelOrder(null)} />
+      )}
+
       <AskPrintModal open={!!askPrint}
         onPrint={() => { if (askPrint) doPrint(askPrint); setAskPrint(null); }}
         onSkip={() => setAskPrint(null)} />
@@ -1102,6 +1386,93 @@ export default function ModulePOS({ moduleKey }: { moduleKey: ModuleKey }) {
       <ContactModal biz={biz} coll="clients" open={showClient} onClose={() => setShowClient(false)}
         onSaved={(c) => { setPassage(false); setClientId(c.id); }} />
     </div>
+  );
+}
+
+// ─── Tables ────────────────────────────────────────────────────────────────────
+
+/** Plan de salle : chaque table, libre ou occupée (avec sa note en cours). */
+export function TablePickerModal({ tables, pendingOf, currentId, onPick, onClose, title }: {
+  tables: BizTable[];
+  pendingOf: (id: string) => BizTableOrder | undefined;
+  currentId: string;
+  onPick: (t: BizTable) => void;
+  onClose: () => void;
+  title?: string;
+}) {
+  const [q, setQ] = useState('');
+  const [zone, setZone] = useState('all');
+  const zones = Array.from(new Set(tables.map(t => t.zone).filter(Boolean))) as string[];
+  const list = tables.filter(t => matchesSearch(q, t.name, t.zone) && (zone === 'all' || t.zone === zone));
+  return (
+    <Modal open onClose={onClose} icon={LayoutGrid} size="lg" title={title || 'Choisir une table'}
+      subtitle={`${tables.length} table(s) — ${tables.filter(t => pendingOf(t.id)).length} occupée(s)`}>
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher une table…" className="input-field pl-9" autoFocus />
+          </div>
+          {zones.length > 0 && (
+            <Select value={zone} onChange={e => setZone(e.target.value)} className="!w-auto">
+              <option value="all">Toutes les zones</option>
+              {zones.map(z => <option key={z} value={z}>{z}</option>)}
+            </Select>
+          )}
+        </div>
+        <div className="flex gap-3 text-[11px] font-bold text-slate-500">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-400" /> Libre</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-400" /> Occupée</span>
+        </div>
+        {tables.length === 0 ? (
+          <p className="text-center text-sm text-slate-400 py-10">Aucune table. Créez vos tables dans « Gestion des tables ».</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+            {list.map(t => {
+              const o = pendingOf(t.id);
+              return (
+                <button key={t.id} onClick={() => onPick(t)}
+                  className={`p-3 rounded-2xl border-2 text-left transition-all hover:scale-[1.02] ${o ? 'border-amber-400 bg-amber-50' : 'border-emerald-300 bg-emerald-50'} ${currentId === t.id ? 'ring-2 ring-[#003087]' : ''}`}>
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="font-black text-slate-800 truncate">{t.name}</p>
+                    {t.seats ? <span className="text-[10px] font-bold text-slate-400 shrink-0 flex items-center gap-0.5"><Users className="w-3 h-3" />{t.seats}</span> : null}
+                  </div>
+                  {t.zone && <p className="text-[10px] font-bold text-slate-400 truncate">{t.zone}</p>}
+                  {o ? (
+                    <div className="mt-1.5">
+                      <p className="text-sm font-black text-amber-700 tabular-nums">{money(o.total)}</p>
+                      <p className="text-[10px] font-bold text-amber-600">{o.ref} · {elapsedLabel(o.createdAt)}</p>
+                    </div>
+                  ) : <p className="mt-1.5 text-[11px] font-black text-emerald-600">Libre</p>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Annulation d'une note de table — le motif reste dans l'historique. */
+export function CancelOrderModal({ order, onConfirm, onClose }: {
+  order: BizTableOrder; onConfirm: (reason: string) => void; onClose: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  return (
+    <Modal open onClose={onClose} icon={Ban} size="md" title={`Annuler la note ${order.ref}`}
+      subtitle={`${order.tableName} — ${money(order.total)}`}
+      footer={<>
+        <button className="btn-secondary" onClick={onClose}>Retour</button>
+        <button className="btn-primary !bg-red-600" onClick={() => onConfirm(reason.trim())}><Ban className="w-4 h-4" /> Annuler la commande</button>
+      </>}>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-600">La note sera marquée <strong>annulée</strong> : aucune vente n'est enregistrée et aucun stock ne bouge. Elle reste visible dans l'historique de la table.</p>
+        <Field label="Motif (optionnel)">
+          <Textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Client parti, erreur de saisie…" />
+        </Field>
+      </div>
+    </Modal>
   );
 }
 
