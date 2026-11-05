@@ -4,11 +4,12 @@ import {
   Fuel, Globe, User, Lock, ArrowRight, ShieldCheck, Zap,
   BarChart3, Clock, Eye, EyeOff, UserPlus, Mail, AtSign, X,
   CheckCircle2, AlertCircle, Crown, Briefcase, Users, Store, UtensilsCrossed,
-  Coffee, Droplets,
+  Coffee, Droplets, PlayCircle, RotateCcw,
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   signIn, signUpAdmin, signOut, adminExists, probeBackend, BACKEND_STATUS_MESSAGE,
+  DEMO_ADMIN, resetDemoDatabase,
 } from "../lib/supabase";
 import { useAppState } from "../store/AppContext";
 
@@ -339,6 +340,47 @@ const Login = ({ onLogin }: LoginProps) => {
                     )}
                   </button>
                 </form>
+
+                {/* ── Mode démo : connexion directe au compte administrateur ── */}
+                <div className="flex items-center gap-3 my-5">
+                  <div className="flex-1 h-px bg-slate-100" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
+                    Mode démo
+                  </span>
+                  <div className="flex-1 h-px bg-slate-100" />
+                </div>
+                <button
+                  type="button"
+                  disabled={loading}
+                  data-testid="demo-admin-login"
+                  onClick={() => {
+                    setEmail(DEMO_ADMIN.username);
+                    setPassword(DEMO_ADMIN.password);
+                    handleLogin(undefined, { email: DEMO_ADMIN.username, password: DEMO_ADMIN.password });
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl font-black text-sm uppercase tracking-widest transition-all duration-200 hover:shadow-lg active:scale-[0.98] border-2 disabled:opacity-70"
+                  style={{ borderColor: "#003087", color: "#003087", background: "white" }}
+                >
+                  <PlayCircle className="w-4 h-4" />
+                  <span>Connexion admin démo</span>
+                </button>
+                <p className="text-center text-[11px] text-slate-400 mt-3 font-medium">
+                  Données de test locales — aucune base de données.
+                  {' '}Identifiants : <b>{DEMO_ADMIN.username}</b> / <b>{DEMO_ADMIN.password}</b>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!window.confirm("Remettre toutes les données de démonstration à leur état d'origine ?")) return;
+                    resetDemoDatabase();
+                    try { localStorage.clear(); } catch { /* rien */ }
+                    window.location.reload();
+                  }}
+                  className="w-full flex items-center justify-center gap-1.5 mt-2 text-[11px] font-bold text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Réinitialiser les données démo</span>
+                </button>
 
                 {/* ── Create administrator account (shown only until one exists) ── */}
                 {canCreateAdmin && (

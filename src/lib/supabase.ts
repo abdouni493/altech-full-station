@@ -1,18 +1,24 @@
 /**
- * ─── DATA CLIENT ───────────────────────────────────────────────────────────────
- * Single Supabase client for the whole app (auth, tables, RPCs, storage,
- * realtime). The schema it expects is `supabase/full_schema.sql`.
+ * ─── DATA CLIENT (MODE DÉMO — AUCUNE BASE DE DONNÉES) ─────────────────────────
+ * L'application ne se connecte plus à Supabase : `supabase` est un client LOCAL
+ * (`mockSupabase.ts`) qui imite l'API de supabase-js sur une base en mémoire,
+ * pré-remplie avec le jeu de données constant de `demoData.ts`. Toutes les
+ * interfaces fonctionnent donc hors ligne, pour les tests.
+ *
+ * Compte administrateur de démonstration : admin / demo1234
+ * (bouton « Connexion admin démo » sur la page de connexion).
  * ──────────────────────────────────────────────────────────────────────────────
  */
-import { createClient } from '@supabase/supabase-js';
+import { createMockClient, resetDemoDatabase } from './mockSupabase';
+import { DEMO_ADMIN, DEMO_ACCOUNTS } from './demoData';
 
-export const SUPABASE_URL: string =
-  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://hrzpqnlqtwifaafanzyj.supabase.co';
-export const SUPABASE_ANON_KEY: string =
-  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhyenBxbmxxdHdpZmFhZmFuenlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExMDAyMTksImV4cCI6MjEwNjY3NjIxOX0.fUGUHwP5eQVPPNf23xmMJ8jIzfBYJqwOFdhcOvyyLpA';
+export { resetDemoDatabase, DEMO_ADMIN, DEMO_ACCOUNTS };
 
-export const IS_DEMO = false;
+/** Conservés pour compatibilité : aucune URL ni clé n'est plus utilisée. */
+export const SUPABASE_URL = 'demo://local';
+export const SUPABASE_ANON_KEY = 'demo';
+
+export const IS_DEMO = true;
 
 /** localStorage key holding the Supabase session (read synchronously at boot). */
 export const AUTH_STORAGE_KEY = 'station-auth-token';
@@ -45,15 +51,8 @@ export type BackendStatus = 'ok' | 'database' | 'offline';
 
 /** Tells apart « no Internet » from « Supabase does not answer ». */
 export async function probeBackend(): Promise<BackendStatus> {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/health`, {
-      headers: { apikey: SUPABASE_ANON_KEY },
-      cache: 'no-store',
-    });
-    return res.ok ? 'ok' : 'database';
-  } catch {
-    return 'offline';
-  }
+  // Mode démo : la « base » est locale, elle répond toujours.
+  return 'ok';
 }
 
 /** Message prêt à afficher pour chaque état — même vocabulaire partout. */
@@ -62,14 +61,7 @@ export const BACKEND_STATUS_MESSAGE: Record<Exclude<BackendStatus, 'ok'>, string
   offline: "Impossible de joindre le serveur. Vérifiez votre connexion Internet.",
 };
 
-export const supabase: any = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-    storageKey: AUTH_STORAGE_KEY,
-  },
-});
+export const supabase: any = createMockClient();
 
 // ─── Realtime health ────────────────────────────────────────────────────────────
 /**
@@ -137,23 +129,19 @@ export function getPublicUrl(bucket: string, path: string): string {
   return data.publicUrl;
 }
 
-function randomName(ext = 'jpg'): string {
-  const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `${id}.${ext}`;
-}
 
-/** Uploads a File to a bucket and returns its public URL (or null on failure). */
-export async function uploadFile(bucket: string, path: string, file: File): Promise<string | null> {
+/**
+ * Mode démo : le fichier n'est envoyé nulle part, il est gardé dans le
+ * navigateur sous forme de data-URL (affichable comme une URL publique).
+ */
+export async function uploadFile(_bucket: string, _path: string, file: File): Promise<string | null> {
   try {
-    const key = path && path.length ? path : randomName((file.name?.split('.').pop() || 'jpg'));
-    const { error } = await supabase.storage.from(bucket).upload(key, file, {
-      upsert: true,
-      contentType: file.type || 'image/jpeg',
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
     });
-    if (error) { console.warn('[uploadFile]', error.message); return null; }
-    return getPublicUrl(bucket, key);
   } catch (e) {
     console.warn('[uploadFile] failed', e);
     return null;
@@ -162,38 +150,14 @@ export async function uploadFile(bucket: string, path: string, file: File): Prom
 
 /** Converts a base64 / data-URL string to bytes and uploads it; returns public URL. */
 export async function uploadBase64(
-  bucket: string,
-  path: string,
+  _bucket: string,
+  _path: string,
   base64: string,
   mimeType = 'image/jpeg'
 ): Promise<string | null> {
-  try {
-    if (!base64) return null;
-    // Already a hosted URL — nothing to upload.
-    if (base64.startsWith('http') || base64.startsWith('blob:')) return base64;
-
-    let raw = base64;
-    let mime = mimeType;
-    const m = base64.match(/^data:([^;]+);base64,(.*)$/);
-    if (m) { mime = m[1]; raw = m[2]; }
-
-    const binary = atob(raw);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const ext = (mime.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-    const key = path && path.length ? path : randomName(ext);
-
-    const { error } = await supabase.storage.from(bucket).upload(key, bytes, {
-      upsert: true,
-      contentType: mime,
-    });
-    if (error) { console.warn('[uploadBase64]', error.message); return base64; }
-    return getPublicUrl(bucket, key);
-  } catch (e) {
-    console.warn('[uploadBase64] failed', e);
-    // Fall back to the original base64 so the image still renders in the UI.
-    return base64 || null;
-  }
+  if (!base64) return null;
+  if (base64.startsWith('http') || base64.startsWith('blob:') || base64.startsWith('data:')) return base64;
+  return `data:${mimeType};base64,${base64}`;
 }
 
 // ─── Auth helpers (public API) ──────────────────────────────────────────────────
@@ -279,6 +243,11 @@ export async function adminExists(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Connexion directe au compte administrateur de démonstration. */
+export function signInDemoAdmin() {
+  return signIn(DEMO_ADMIN.username, DEMO_ADMIN.password);
 }
 
 export async function signOut() {
