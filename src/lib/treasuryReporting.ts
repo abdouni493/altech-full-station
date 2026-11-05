@@ -35,6 +35,7 @@ export const CAISSE_PART_ID = {
   cafeteria: 'CAISSE_CAFETERIA',
   lavage: 'CAISSE_LAVAGE',
   magasin2: 'CAISSE_MAGASIN2',
+  carwash: 'CAISSE_CARWASH',
 } as const;
 
 export const CASH_ACCOUNT_IDS: string[] = [CAISSE_ID, ...Object.values(CAISSE_PART_ID)];
@@ -46,11 +47,12 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   [CAISSE_PART_ID.cafeteria]: 'Caisse Cafétéria',
   get [CAISSE_PART_ID.lavage]() { return `Caisse ${MODULES.lavage.label}`; },
   get [CAISSE_PART_ID.magasin2]() { return `Caisse ${MODULES.magasin2.label}`; },
+  [CAISSE_PART_ID.carwash]: 'Caisse Lavage & Vidange',
 };
 
 const isCashAccount = (id?: string): boolean => !!id && CASH_ACCOUNT_IDS.includes(id);
 
-export type TreasuryPartKey = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'systeme';
+export type TreasuryPartKey = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'carwash' | 'systeme';
 
 /**
  * À QUI appartient l'argent DÉJÀ sur un compte bancaire le jour de sa création.
@@ -87,6 +89,7 @@ export const TREASURY_PART_LABEL: Record<TreasuryPartKey, string> = {
   // Noms choisis dans Paramètres → Magasins, lus à la volée.
   get lavage() { return MODULES.lavage.label; },
   get magasin2() { return MODULES.magasin2.label; },
+  carwash: 'Lavage & Vidange',
   systeme: 'Finance',
 };
 
@@ -653,6 +656,7 @@ export function computeTreasuryReport(app: any, biz: BizState, from: string, to:
     ...(isMagasin2Enabled()
       ? [{ key: 'magasin2' as TreasuryPartKey, label: TREASURY_PART_LABEL.magasin2, balance: partBalance('magasin2'), ...flowsOf('magasin2') }]
       : []),
+    { key: 'carwash', label: TREASURY_PART_LABEL.carwash, balance: partBalance('carwash'), ...flowsOf('carwash') },
     { key: 'systeme', label: TREASURY_PART_LABEL.systeme, balance: caisseBalance + bankTotal, ...flowsOf('systeme') },
   ];
 

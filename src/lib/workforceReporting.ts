@@ -25,7 +25,7 @@ import {
 } from './bizConfig';
 import { within } from './bizReporting';
 
-export type WorkforcePart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
+export type WorkforcePart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'carwash';
 
 export const PART_META: Record<WorkforcePart, { label: string; emoji: string; color: string }> = {
   carburant: { label: 'Carburant', emoji: '⛽', color: '#003087' },
@@ -34,6 +34,7 @@ export const PART_META: Record<WorkforcePart, { label: string; emoji: string; co
   // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
   get lavage() { return { label: MODULES.lavage.label, emoji: '🛒', color: '#0e7490' }; },
   get magasin2() { return { label: MODULES.magasin2.label, emoji: '🏬', color: '#7c3aed' }; },
+  carwash: { label: 'Lavage & Vidange', emoji: '🧽', color: '#0e9f6e' },
 };
 
 /** Les parties affichées : le second magasin n'apparaît qu'une fois créé. */

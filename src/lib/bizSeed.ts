@@ -44,6 +44,7 @@ export function emptyBizState(): BizState {
     cafeteria: emptyModule(),
     lavage: emptyModule(),
     magasin2: emptyModule(),
+    carwash: emptyModule(),
   };
 }
 

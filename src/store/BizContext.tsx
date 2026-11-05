@@ -294,7 +294,7 @@ function migrate(raw: any): BizState | null {
     // they keep showing up on both kinds of prestation.
     mod.workers = (mod.workers as any[]).map(w => ({
       ...w,
-      workerKind: w.workerKind || (key === 'lavage' || key === 'magasin2' ? 'both' : undefined),
+      workerKind: w.workerKind || (key === 'lavage' || key === 'magasin2' || key === 'carwash' ? 'both' : undefined),
     }));
     delete mod.services;
     state[key] = mod;

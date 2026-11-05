@@ -60,6 +60,9 @@ import ModuleExpenses from "./pages/modules/ModuleExpenses";
 import ModuleCaisse from "./pages/modules/ModuleCaisse";
 import ModuleReports from "./pages/modules/ModuleReports";
 import ModuleFeedbacks from "./pages/modules/ModuleFeedbacks";
+import ModuleReparations from "./pages/modules/ModuleReparations";
+import ModuleEncaissements from "./pages/modules/ModuleEncaissements";
+import ModuleMessages from "./pages/modules/ModuleMessages";
 import GeneralReports from "./pages/GeneralReports";
 
 // Builds the route list for one business module based on its capabilities.
@@ -75,6 +78,8 @@ function buildModuleRoutes(key: ModuleKey): ModuleRoute[] {
     routes.push({ path: `${b}/${sub}`, iface: sub, moduleKey: key, element });
 
   if (cfg.isService) {
+    add('reparations', <ModuleReparations moduleKey={key} />);
+    add('encaissements', <ModuleEncaissements moduleKey={key} />);
     // Point de vente + Ventes moved here when the Magasin part was removed.
     add('pos', <ModulePOS moduleKey={key} />);
     add('sales', <ModuleSales moduleKey={key} />);
@@ -82,6 +87,7 @@ function buildModuleRoutes(key: ModuleKey): ModuleRoute[] {
     add('inventaire', <ModuleInventaire moduleKey={key} />);
     add('purchases', <ModulePurchases moduleKey={key} />);
     add('clients', <ModuleClients moduleKey={key} />);
+    add('messages', <ModuleMessages moduleKey={key} />);
     add('suppliers', <ModuleSuppliers moduleKey={key} />);
     add('workers', <ModuleWorkers moduleKey={key} />);
     add('expenses', <ModuleExpenses moduleKey={key} />);

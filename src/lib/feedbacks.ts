@@ -26,7 +26,7 @@ import { supabase } from './supabase';
 import { MODULES, isMagasin2Enabled } from './bizConfig';
 
 /** Partie de la station visée par un avis. `fuel` = station-service. */
-export type FeedbackPart = 'fuel' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
+export type FeedbackPart = 'fuel' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'carwash';
 
 export type FeedbackStatus = 'unread' | 'read';
 
@@ -71,6 +71,7 @@ export const FEEDBACK_PARTS: {
   // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
   { id: 'lavage', get label() { return MODULES.lavage.label; }, get short() { return MODULES.lavage.short; }, emoji: '🛒', hint: 'Produits et accessoires du magasin' },
   { id: 'magasin2', get label() { return MODULES.magasin2.label; }, get short() { return MODULES.magasin2.short; }, emoji: '🏬', hint: 'Produits et accessoires du magasin' },
+  { id: 'carwash', label: 'Lavage & Vidange', short: 'Lavage', emoji: '🧽', hint: 'Lavage, vidange, accueil' },
 ];
 
 /** Les parties proposées : le second magasin n'y figure qu'une fois créé. */
@@ -83,7 +84,7 @@ export const FEEDBACK_PART_META: Record<FeedbackPart, { label: string; short: st
 
 /** Un identifiant de partie inconnu (base plus récente que ce build) est ignoré. */
 export const isFeedbackPart = (v: unknown): v is FeedbackPart =>
-  v === 'fuel' || v === 'restaurant' || v === 'cafeteria' || v === 'lavage' || v === 'magasin2';
+  v === 'fuel' || v === 'restaurant' || v === 'cafeteria' || v === 'lavage' || v === 'magasin2' || v === 'carwash';
 
 // ─── Correspondance ligne ↔ objet ──────────────────────────────────────────────
 

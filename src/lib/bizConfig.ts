@@ -17,10 +17,10 @@
  *              exactement les mêmes interfaces que le premier, avec son propre
  *              stock, ses propres ventes, sa propre caisse — tout est séparé.
  */
-export type ModuleKey = 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
+export type ModuleKey = 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'carwash';
 
 /** Every part of the biz store, in sidebar order. */
-export const MODULE_KEYS: ModuleKey[] = ['restaurant', 'cafeteria', 'lavage', 'magasin2'];
+export const MODULE_KEYS: ModuleKey[] = ['restaurant', 'cafeteria', 'lavage', 'magasin2', 'carwash'];
 
 /** The parts that are a « Magasin » (shop): the first one and the second one. */
 export const MAGASIN_KEYS: ModuleKey[] = ['lavage', 'magasin2'];
@@ -837,6 +837,10 @@ export interface BizSession {
 export interface BizPayRequest {
   id: string;
   ref: string;
+  /** Lavage ou vidange — absent sur les demandes d'avant ce choix. */
+  kind?: 'lavage' | 'reparation';
+  /** Fiche client choisie (absente pour un client de passage). */
+  clientId?: string;
   clientName: string;
   car: BizCar;
   amount: number;
@@ -847,6 +851,10 @@ export interface BizPayRequest {
   createdAt: string;
   collectedAt?: string;
   collectedBy?: string;
+  /** L'utilisateur connecté qui a créé la demande (employé ou admin). */
+  createdBy?: string;
+  /** L'intervention Lavage & Vidange née de la validation par l'admin. */
+  reparationId?: string;
 }
 
 export interface BizCar {
@@ -1351,6 +1359,19 @@ export const MODULES: Record<ModuleKey, ModuleConfig> = {
     hasComptoir: false,
     isService: false,
   },
+  // Lavage & Vidange — partie de service : interventions (vidanges, lavages),
+  // demandes d'encaissement, messages clients (rappels), plus point de vente.
+  carwash: {
+    key: 'carwash',
+    label: 'Lavage & Vidange',
+    short: 'Lavage',
+    emoji: '🧽',
+    base: '/lavage',
+    productWord: 'Produit',
+    hasProduction: false,
+    hasComptoir: false,
+    isService: true,
+  },
   // Second magasin — mêmes interfaces que le premier, données séparées.
   magasin2: {
     key: 'magasin2',
@@ -1498,6 +1519,7 @@ export const MODULE_INTERFACES: { id: string; label: string }[] = [
   { id: 'reparations', label: 'Vidanges & Lavage' },
   { id: 'encaissements', label: 'Demandes d\'encaissement' },
   { id: 'clients', label: 'Clients' },
+  { id: 'messages', label: 'Messages clients' },
   { id: 'suppliers', label: 'Fournisseurs' },
   { id: 'workers', label: 'Employés' },
   { id: 'expenses', label: 'Dépenses' },
@@ -1523,8 +1545,8 @@ export function interfacesForModule(key: ModuleKey): { id: string; label: string
   const cfg = MODULES[key];
   const ids = cfg.isService
     ? [
-        'pos', 'sales', 'stock', 'inventaire', 'purchases',
-        'clients', 'suppliers', 'workers', 'expenses', 'caisse', 'reports', 'feedbacks',
+        'reparations', 'encaissements', 'pos', 'sales', 'stock', 'inventaire', 'purchases',
+        'clients', 'messages', 'suppliers', 'workers', 'expenses', 'caisse', 'reports', 'feedbacks',
       ]
     : [
         'stock', 'inventaire', 'purchases',

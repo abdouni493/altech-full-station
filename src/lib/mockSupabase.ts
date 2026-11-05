@@ -23,8 +23,8 @@ import { buildDemoTables, DEMO_ACCOUNTS, DemoAccount } from './demoData';
 type Row = Record<string, any>;
 type Tables = Record<string, Row[]>;
 
-const DB_STORAGE_KEY = 'altech-demo-db-v1';
-const USERS_STORAGE_KEY = 'altech-demo-users-v1';
+const DB_STORAGE_KEY = 'altech-demo-db-v2';
+const USERS_STORAGE_KEY = 'altech-demo-users-v2';
 
 const clone = <T,>(v: T): T => {
   if (v === undefined || v === null) return v;

@@ -383,7 +383,7 @@ const bizProduct = (id: string, name: string, cat: [string, string], buy: number
   createdAt: T(80), ...extra,
 });
 
-function bizModule(key: 'cafeteria' | 'lavage' | 'magasin2', spec: {
+function bizModule(key: 'cafeteria' | 'lavage' | 'magasin2' | 'carwash', spec: {
   categories: [string, string][]; products: any[]; clients: any[]; suppliers: any[]; workers: any[]; sales: any[]; purchases: any[]; expenses: any[];
   tables?: any[];
 }) {
@@ -502,6 +502,70 @@ function buildBizState() {
     bizSale('m2', 3, 4, [{ p: m2Products[3], q: 1 }, { p: m2Products[0], q: 1 }]),
   ];
 
+  // Lavage & Vidange (partie de service)
+  const cwCats: [string, string][] = [['cw-demo-cat-1', 'Huiles moteur'], ['cw-demo-cat-2', 'Filtres'], ['cw-demo-cat-3', 'Produits lavage']];
+  const cwProducts = [
+    bizProduct('cw-demo-p1', 'Huile 10W40 — 5 L', cwCats[0], 2600, 3400, 20, 5),
+    bizProduct('cw-demo-p2', 'Huile 5W30 — 5 L', cwCats[0], 3300, 4300, 12, 4),
+    bizProduct('cw-demo-p3', 'Filtre à huile', cwCats[1], 450, 800, 30, 8),
+    bizProduct('cw-demo-p4', 'Filtre à air', cwCats[1], 700, 1200, 3, 5),
+    bizProduct('cw-demo-p5', 'Shampoing carrosserie 5 L', cwCats[2], 900, 1500, 10, 3, { isRawMaterial: true }),
+    bizProduct('cw-demo-p6', 'Désodorisant', cwCats[2], 120, 250, 50, 10),
+  ];
+  const cwCars = [
+    { id: 'cw-demo-car-1', name: 'Clio 4', marque: 'Renault', color: 'Blanc', year: '2017', immatriculation: '12345-117-19' },
+    { id: 'cw-demo-car-2', name: 'Symbol', marque: 'Renault', color: 'Gris', year: '2015', immatriculation: '67890-115-19' },
+    { id: 'cw-demo-car-3', name: 'Hilux', marque: 'Toyota', color: 'Noir', year: '2020', immatriculation: '24680-120-19' },
+  ];
+  const cwClients = [
+    { id: 'cw-demo-cli-1', name: 'Garage Amrani', phone: '0663 77 66 55', createdAt: T(40), cars: [cwCars[0]] },
+    { id: 'cw-demo-cli-2', name: 'Transport Hamdi SARL', phone: '036 84 12 12', createdAt: T(35), cars: [cwCars[2]] },
+    { id: 'cw-demo-cli-3', name: 'Mohamed S.', phone: '0664 88 99 00', createdAt: T(15), cars: [cwCars[1]] },
+  ];
+  const cwWorkers = [
+    bizWorker('cw-demo-wrk-1', 'Adel Kaci', 'Laveur', 0, { salaryType: 'pourcentage', percentage: 30, workerKind: 'lavage' }),
+    bizWorker('cw-demo-wrk-2', 'Toufik Rahmani', 'Mécanicien vidange', 40000, { workerKind: 'reparation' }),
+    bizWorker('cw-demo-wrk-3', 'Imad Bensalem', 'Polyvalent', 1500, { salaryType: 'jour', workDays: [0, 1, 2, 3, 4, 6], workerKind: 'both' }),
+  ];
+  const rep = (i: number, n: number, kind: 'reparation' | 'lavage' | 'mixte', cli: any, car: any, prest: { kind: 'reparation' | 'lavage'; label: string; amount: number; w: string[] }[], used: { p: any; q: number }[], status: 'pending' | 'finalized', paidRatio = 1) => {
+    const prestations = prest.map((x, k) => ({ id: `cw-demo-prs-${i}-${k}`, kind: x.kind, label: x.label, amount: x.amount, workerIds: x.w }));
+    const usedProducts = used.map(u => ({ productId: u.p.id, productName: u.p.name, qty: u.q, unitPrice: u.p.salePrice, unitCost: u.p.purchasePrice, total: u.p.salePrice * u.q }));
+    const serviceTotal = prestations.reduce((a, x) => a + x.amount, 0);
+    const total = serviceTotal + usedProducts.reduce((a, x) => a + x.total, 0);
+    const paid = status === 'finalized' ? round2(total * paidRatio) : 0;
+    return {
+      id: `cw-demo-rep-${i}`, ref: `INT-${String(200 + i)}`, kind, clientId: cli?.id, clientName: cli?.name || 'Client de passage', car,
+      serviceTotal, prestations, usedProducts, problem: kind === 'lavage' ? undefined : 'Vidange périodique',
+      subtotal: total, total, paid, rest: round2(total - paid), status, date: T(n, 9 + i % 6),
+      finalizedAt: status === 'finalized' ? T(n, 11 + i % 6) : undefined, outDate: status === 'finalized' ? T(n, 11 + i % 6) : undefined,
+      workers: [...new Set(prest.flatMap(x => x.w))], createdBy: DEMO_ADMIN.name,
+      payments: paid > 0 ? [{ id: `cw-demo-rpay-${i}`, date: T(n, 11 + i % 6), amount: paid, mode: 'Espèces' }] : [],
+    };
+  };
+  const cwReparations = [
+    rep(1, 0, 'lavage', null, { name: 'Golf 7', marque: 'Volkswagen', immatriculation: '11223-116-19' }, [{ kind: 'lavage', label: 'Lavage complet', amount: 800, w: ['cw-demo-wrk-1'] }], [], 'pending'),
+    rep(2, 0, 'reparation', cwClients[0], cwCars[0], [{ kind: 'reparation', label: 'Vidange + filtre', amount: 1000, w: ['cw-demo-wrk-2'] }], [{ p: cwProducts[0], q: 1 }, { p: cwProducts[2], q: 1 }], 'pending'),
+    rep(3, 1, 'mixte', cwClients[1], cwCars[2], [{ kind: 'reparation', label: 'Vidange', amount: 1200, w: ['cw-demo-wrk-2'] }, { kind: 'lavage', label: 'Lavage extérieur', amount: 600, w: ['cw-demo-wrk-1'] }], [{ p: cwProducts[1], q: 1 }, { p: cwProducts[2], q: 1 }], 'finalized', 0.5),
+    rep(4, 2, 'lavage', cwClients[2], cwCars[1], [{ kind: 'lavage', label: 'Lavage intérieur + extérieur', amount: 1000, w: ['cw-demo-wrk-3'] }], [{ p: cwProducts[5], q: 1 }], 'finalized'),
+    rep(5, 4, 'reparation', cwClients[0], cwCars[0], [{ kind: 'reparation', label: 'Changement filtre à air', amount: 500, w: ['cw-demo-wrk-3'] }], [{ p: cwProducts[3], q: 1 }], 'finalized'),
+    rep(6, 6, 'lavage', null, { name: 'Picanto', marque: 'Kia', immatriculation: '55443-118-19' }, [{ kind: 'lavage', label: 'Lavage express', amount: 400, w: ['cw-demo-wrk-1'] }], [], 'finalized'),
+  ];
+  const cwPayRequests = [
+    { id: 'cw-demo-req-1', ref: 'DE-001', kind: 'lavage', clientName: 'Client de passage', car: { name: 'Polo', marque: 'Volkswagen', immatriculation: '99887-119-19' }, amount: 700, description: 'Lavage extérieur', workerId: 'cw-demo-wrk-1', workerName: 'Adel Kaci', status: 'pending', createdAt: T(0, 10), createdBy: 'Adel Kaci' },
+    { id: 'cw-demo-req-2', ref: 'DE-002', kind: 'reparation', clientId: 'cw-demo-cli-3', clientName: 'Mohamed S.', car: cwCars[1], amount: 1500, description: 'Vidange sans fourniture', workerId: 'cw-demo-wrk-2', workerName: 'Toufik Rahmani', status: 'pending', createdAt: T(0, 11), createdBy: 'Toufik Rahmani' },
+    { id: 'cw-demo-req-3', ref: 'DE-003', kind: 'lavage', clientName: 'Client de passage', car: { name: 'Accent', marque: 'Hyundai', immatriculation: '33221-112-19' }, amount: 500, workerId: 'cw-demo-wrk-1', workerName: 'Adel Kaci', status: 'collected', createdAt: T(1, 15), collectedAt: T(1, 16), collectedBy: DEMO_ADMIN.name },
+  ];
+  const cwSales = [
+    bizSale('cw', 1, 0, [{ p: cwProducts[5], q: 2 }]),
+    bizSale('cw', 2, 3, [{ p: cwProducts[0], q: 1 }], cwClients[1]),
+  ];
+  const cwModule: any = bizModule('carwash' as any, { categories: cwCats, products: cwProducts, clients: cwClients, suppliers: [{ id: 'cw-demo-sup-1', name: 'Lubrifiants du Centre', phone: '036 71 71 71', createdAt: T(70) }], workers: cwWorkers, sales: cwSales, purchases: [], expenses: [{ id: 'cw-demo-exp-1', name: 'Produits de lavage', amount: 4200, date: T(5), category: 'Fournitures' }] });
+  cwModule.reparations = cwReparations;
+  cwModule.payRequests = cwPayRequests;
+  cwModule.messageTemplates = [
+    { id: 'cw-demo-tpl-1', name: 'Rappel vidange', body: 'Bonjour {client}, la prochaine vidange de votre {voiture} approche. Station Altech.', createdAt: T(30) },
+  ];
+
   const empty = bizModule('magasin2', { categories: [], products: [], clients: [], suppliers: [], workers: [], sales: [], purchases: [], expenses: [] });
   empty.caisse = [];
   empty.marques = [];
@@ -511,6 +575,7 @@ function buildBizState() {
     restaurant: empty,
     cafeteria: bizModule('cafeteria', { categories: cafCats, products: cafProducts, clients: cafClients, suppliers: cafSuppliers, workers: cafWorkers, sales: cafSales, purchases: cafPurchases, expenses: cafExpenses, tables: cafTables }),
     lavage: bizModule('lavage', { categories: lavCats, products: lavProducts, clients: lavClients, suppliers: lavSuppliers, workers: lavWorkers, sales: lavSales, purchases: lavPurchases, expenses: [{ id: 'lav-demo-exp-1', name: 'Shampoing carrosserie', amount: 3600, date: T(5), category: 'Fournitures' }] }),
+    carwash: cwModule,
     magasin2: bizModule('magasin2', { categories: m2Cats, products: m2Products, clients: [], suppliers: [], workers: [], sales: m2Sales, purchases: [], expenses: [] }),
   };
 
@@ -518,6 +583,7 @@ function buildBizState() {
     ...cafProducts.map(p => ({ id: p.id, module_key: 'cafeteria', data: p, created_at: T(80) })),
     ...lavProducts.map(p => ({ id: p.id, module_key: 'lavage', data: p, created_at: T(80) })),
     ...m2Products.map(p => ({ id: p.id, module_key: 'magasin2', data: p, created_at: T(80) })),
+    ...cwProducts.map(p => ({ id: p.id, module_key: 'carwash', data: p, created_at: T(80) })),
   ];
 
   const armoireStock = [

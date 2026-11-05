@@ -75,6 +75,7 @@ const ALL_PARTS: { key: TreasuryPart; label: string; short: string; tone: string
   // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
   { key: 'lavage', get label() { return MODULES.lavage.label; }, get short() { return `🛒 ${MODULES.lavage.label}`; }, tone: '#0e7490' },
   { key: 'magasin2', get label() { return MODULES.magasin2.label; }, get short() { return `🏬 ${MODULES.magasin2.label}`; }, tone: '#7c3aed' },
+  { key: 'carwash', label: 'Lavage & Vidange', short: '🧽 Lavage & Vidange', tone: '#0891b2' },
   { key: 'systeme', label: 'Finance (caisse générale)', short: '🏛️ Finance', tone: '#4c1d95' },
 ];
 /** Le second magasin n'est proposé qu'une fois créé. */
@@ -108,7 +109,7 @@ const Expenses = () => {
   const partCash = useMemo<Record<string, number>>(() => {
     // Une partie non encore chargée n'a pas de caisse : mieux vaut 0 qu'un écran
     // blanc, la saisie de la dépense n'en dépend pas.
-    const ofModule = (key: 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2') =>
+    const ofModule = (key: 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'carwash') =>
       biz?.[key] ? moduleCaisseBalance(biz[key], key, treasuryTransactions, expenses) : 0;
     return {
       carburant: carburantCashBalance(state),
@@ -116,6 +117,7 @@ const Expenses = () => {
       cafeteria: ofModule('cafeteria'),
       lavage: ofModule('lavage'),
       magasin2: ofModule('magasin2'),
+      carwash: ofModule('carwash'),
       systeme: caisseBalanceOf(treasuryTransactions),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -262,6 +262,7 @@ export function computeStockValuation(app: any, biz: BizState): StockValuation {
     computeModuleStock(biz.lavage, 'lavage'),
     // Le second magasin, une fois créé, a son propre stock.
     ...(isMagasin2Enabled() && biz.magasin2 ? [computeModuleStock(biz.magasin2, 'magasin2')] : []),
+    ...(biz.carwash ? [computeModuleStock(biz.carwash, 'carwash')] : []),
   ];
   const buyValue = parts.reduce((s, p) => s + p.buyValue, 0);
   const sellValue = parts.reduce((s, p) => s + p.sellValue, 0);

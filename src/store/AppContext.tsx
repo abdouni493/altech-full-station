@@ -875,6 +875,7 @@ export const CAISSE_PART_ID = {
   cafeteria: 'CAISSE_CAFETERIA',
   lavage: 'CAISSE_LAVAGE',
   magasin2: 'CAISSE_MAGASIN2',
+  carwash: 'CAISSE_CARWASH',
 } as const;
 
 /** Every cash box of the station, general one included. */
@@ -889,6 +890,7 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
   get [CAISSE_PART_ID.lavage]() { return `Caisse ${MODULES.lavage.label}`; },
   get [CAISSE_PART_ID.magasin2]() { return `Caisse ${MODULES.magasin2.label}`; },
+  [CAISSE_PART_ID.carwash]: 'Caisse Lavage & Vidange',
 };
 
 /**
@@ -929,10 +931,10 @@ export type TreasuryKind =
   | 'PURCHASE' | 'SALE' | 'EXPENSE' | 'BRIGADE' | 'TPE' | 'SALARY' | 'ADJUST';
 
 /** Which activity of the station the movement belongs to. */
-export type TreasuryPart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'systeme';
+export type TreasuryPart = 'carburant' | 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'carwash' | 'systeme';
 
 /** Les activités qui tiennent leur PROPRE caisse — la Finance tient la générale. */
-export const TREASURY_PARTS: TreasuryPart[] = ['carburant', 'restaurant', 'cafeteria', 'lavage', 'magasin2', 'systeme'];
+export const TREASURY_PARTS: TreasuryPart[] = ['carburant', 'restaurant', 'cafeteria', 'lavage', 'magasin2', 'carwash', 'systeme'];
 
 /** Les activités réellement utilisées : le second magasin n'y figure qu'une fois créé. */
 export const activeTreasuryPartList = (): TreasuryPart[] =>
@@ -1386,7 +1388,7 @@ export type AppUserRole =
 /** Connected employee of a business part, resolved at login from Supabase. */
 export interface ModuleWorkerSession {
   id: string;
-  moduleKey: 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2';
+  moduleKey: 'restaurant' | 'cafeteria' | 'lavage' | 'magasin2' | 'carwash';
   name: string;
   roleName?: string;
   /** Flat map keyed `"<interface>.<action>"`, e.g. `"stock.voir"`. */

@@ -112,6 +112,7 @@ const PART_META: Record<TreasuryPart, { label: string; icon: React.ElementType; 
   // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
   get lavage() { return { label: MODULES.lavage.label, icon: Droplets, tone: '#0e7490' }; },
   get magasin2() { return { label: MODULES.magasin2.label, icon: Store, tone: '#7c3aed' }; },
+  carwash: { label: 'Lavage & Vidange', icon: Droplets, tone: '#0891b2' },
   systeme: { label: 'Finance', icon: Landmark, tone: '#4c1d95' },
 };
 
@@ -207,6 +208,7 @@ export default function CaisseGenerale() {
       cafeteria: bizLines('cafeteria'),
       lavage: bizLines('lavage'),
       magasin2: bizLines('magasin2'),
+      carwash: bizLines('carwash'),
       systeme: financeLines,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,6 +220,7 @@ export default function CaisseGenerale() {
     cafeteria: sumLines(partLines.cafeteria),
     lavage: sumLines(partLines.lavage),
     magasin2: sumLines(partLines.magasin2),
+    carwash: sumLines(partLines.carwash),
     systeme: sumLines(partLines.systeme),
   }), [partLines]);
 

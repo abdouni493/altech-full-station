@@ -43,7 +43,7 @@ const rangeLabel = (from?: string, to?: string) => (!from && !to
   : `${from ? fmtDate(from) : 'origine'} → ${to ? fmtDate(to) : "aujourd'hui"}`);
 
 const PART_ICON: Record<WorkforcePart, React.ElementType> = {
-  carburant: Fuel, restaurant: UtensilsCrossed, cafeteria: Coffee, lavage: Droplets, magasin2: Droplets,
+  carburant: Fuel, restaurant: UtensilsCrossed, cafeteria: Coffee, lavage: Droplets, magasin2: Droplets, carwash: Droplets,
 };
 
 // ─── Small building blocks ───────────────────────────────────────────────────
