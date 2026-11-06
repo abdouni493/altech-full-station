@@ -31,6 +31,7 @@ import {
 } from '@/src/components/biz/Kit';
 import { printTableOrder, elapsedLabel, tableEvent } from './tableShared';
 import { CancelOrderModal } from './ModulePOS';
+import { todayLocal } from '@/src/lib/period';
 
 type Period = Parameters<typeof inPeriod>[1];
 
@@ -72,7 +73,7 @@ export default function ModuleTables({ moduleKey }: { moduleKey: ModuleKey }) {
   const by = currentUserName || 'Admin';
 
   // ── Indicateurs ─────────────────────────────────────────────────────────────
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   const pending = orders.filter(o => o.status === 'pending');
   const doneToday = orders.filter(o => o.status === 'completed' && (o.completedAt || '').slice(0, 10) === today);
   const cancelledToday = orders.filter(o => o.status === 'cancelled' && (o.cancelledAt || '').slice(0, 10) === today);

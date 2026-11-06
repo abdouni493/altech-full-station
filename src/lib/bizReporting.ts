@@ -1168,6 +1168,9 @@ export function computeCarburantReport(app: any, from: string, to: string): Part
 export interface GlobalReport {
   from: string; to: string;
   parts: PartReport[];
+  /** Dépenses de la Finance (station), incluses dans `expensesTotal` et `netGain`. */
+  financeExpenses: any[];
+  financeExpensesTotal: number;
   salesTotal: number; purchasesTotal: number; expensesTotal: number; salariesPaid: number;
   /** Part des achats de la période DÉJÀ réglée. */
   purchasesPaid: number;
@@ -1185,17 +1188,25 @@ export interface GlobalReport {
   counts: { products: number; clients: number; suppliers: number; sales: number; purchases: number; workers: number; returns: number };
 }
 
-export function consolidate(parts: PartReport[], from: string, to: string): GlobalReport {
+export function consolidate(parts: PartReport[], from: string, to: string, financeExpenses: any[] = []): GlobalReport {
   const sum = (f: (p: PartReport) => number) => parts.reduce((s, p) => s + f(p), 0);
+  /**
+   * Les dépenses de la FINANCE (loyer, charges de la station…) ne sont portées
+   * par aucune activité : sans cette ligne, elles disparaissaient des Rapports
+   * Généraux et le gain net de la station était surévalué d'autant.
+   */
+  const financeExpensesTotal = (financeExpenses || []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
   return {
     from, to, parts,
+    financeExpenses: financeExpenses || [],
+    financeExpensesTotal,
     salesTotal: sum(p => p.salesTotal),
     purchasesTotal: sum(p => p.purchasesTotal),
     purchasesPaid: sum(p => p.purchasesPaid),
     // Ce qui reste dû sur les achats de la période — jamais négatif, un achat
     // trop payé ne compense pas la dette d'un autre.
     purchasesDebt: sum(p => Math.max(0, p.purchasesTotal - p.purchasesPaid)),
-    expensesTotal: sum(p => p.expensesTotal),
+    expensesTotal: sum(p => p.expensesTotal) + financeExpensesTotal,
     salariesPaid: sum(p => p.salariesPaid),
     cogs: sum(p => p.cogs),
     grossMargin: sum(p => p.grossMargin),
@@ -1205,7 +1216,7 @@ export function consolidate(parts: PartReport[], from: string, to: string): Glob
     stockValue: sum(p => p.stockValue),
     destroyedValue: sum(p => p.destroyedValue),
     lossValue: sum(p => p.lossValue),
-    netGain: sum(p => p.netGain),
+    netGain: sum(p => p.netGain) - financeExpensesTotal,
     returnsTotal: sum(p => p.returnsTotal),
     refundedTotal: sum(p => p.refundedTotal),
     restockedCost: sum(p => p.restockedCost),

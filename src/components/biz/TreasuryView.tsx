@@ -149,34 +149,32 @@ export default function TreasuryView({ report: r }: { report: TreasuryReport }) 
             carte passe au rouge, l'annonce et s'ouvre sur le calcul complet. */}
         <button type="button" onClick={() => setCaisseOpen(true)}
           className="rounded-2xl p-6 text-white text-left transition-all hover:-translate-y-0.5 hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-[#003087]/40"
-          style={{ background: r.caisseBalance < 0 ? 'linear-gradient(135deg, #7f1d1d, #b91c1c)' : 'linear-gradient(135deg, #001f5c, #003087)' }}>
+          style={{ background: r.cashTotal < 0 ? 'linear-gradient(135deg, #7f1d1d, #b91c1c)' : 'linear-gradient(135deg, #001f5c, #003087)' }}>
           <div className="flex items-center justify-between gap-2">
-            <div className={cn('flex items-center gap-2', r.caisseBalance < 0 ? 'text-red-100' : 'text-blue-200')}>
-              <PiggyBank className="w-5 h-5" /><span className="text-sm font-bold uppercase tracking-wide">Caisse générale</span>
+            <div className={cn('flex items-center gap-2', r.cashTotal < 0 ? 'text-red-100' : 'text-blue-200')}>
+              <PiggyBank className="w-5 h-5" /><span className="text-sm font-bold uppercase tracking-wide">Toutes les caisses</span>
             </div>
-            {r.caisseBalance < 0 && <span className="badge badge-danger shrink-0">Découvert</span>}
+            {r.cashTotal < 0 && <span className="badge badge-danger shrink-0">Découvert</span>}
           </div>
-          <p className={cn('text-4xl font-black tabular-nums mt-2', r.caisseBalance < 0 ? 'text-white' : 'text-[#FFB800]')}>
-            {money(r.caisseBalance)}
+          <p className={cn('text-2xl 2xl:text-3xl font-black tabular-nums mt-2 break-words', r.cashTotal < 0 ? 'text-white' : 'text-[#FFB800]')}>
+            {money(r.cashTotal)}
           </p>
-          <p className={cn('text-[11px] mt-1', r.caisseBalance < 0 ? 'text-red-100' : 'text-blue-200')}>
-            Espèces — dépôts, retraits et virements
+          {/* Les MÊMES chiffres que l'écran Caisse Générale. */}
+          <p className={cn('text-[11px] mt-1 tabular-nums', r.cashTotal < 0 ? 'text-red-100' : 'text-blue-200')}>
+            Caisses des activités {money(r.activitiesCash)} + Finance {money(r.financeCash)}
           </p>
-          {/* Le solde est celui d'aujourd'hui ; la ligne ci-dessous rattache ce
-              chiffre à la période choisie, sinon rien ne bougeait à l'écran
-              quand on changeait les dates. */}
-          <p className={cn('text-[11px] mt-1 tabular-nums', r.caisseBalance < 0 ? 'text-red-100' : 'text-blue-200')}>
-            Début de période {money(r.caisseOpening)} · +{money(r.caisseIn)} · −{money(r.caisseOut)}
+          <p className={cn('text-[11px] mt-1 tabular-nums', r.cashTotal < 0 ? 'text-red-100' : 'text-blue-200')}>
+            Tiroir commun au grand livre : {money(r.caisseBalance)} (début {money(r.caisseOpening)} · +{money(r.caisseIn)} · −{money(r.caisseOut)})
           </p>
-          <p className={cn('text-[11px] font-black mt-2 flex items-center gap-1', r.caisseBalance < 0 ? 'text-white' : 'text-[#FFB800]')}>
-            Voir le détail du calcul <ChevronRight className="w-3 h-3" />
+          <p className={cn('text-[11px] font-black mt-2 flex items-center gap-1', r.cashTotal < 0 ? 'text-white' : 'text-[#FFB800]')}>
+            Voir le détail du tiroir commun <ChevronRight className="w-3 h-3" />
           </p>
         </button>
         <div className="rounded-2xl p-6 text-white" style={{ background: 'linear-gradient(135deg, #065f46, #047857)' }}>
           <div className="flex items-center gap-2 text-emerald-100">
             <Landmark className="w-5 h-5" /><span className="text-sm font-bold uppercase tracking-wide">Total en banque</span>
           </div>
-          <p className="text-4xl font-black tabular-nums mt-2">{money(r.bankTotal)}</p>
+          <p className="text-2xl 2xl:text-3xl font-black tabular-nums mt-2 break-words">{money(r.bankTotal)}</p>
           <p className="text-[11px] text-emerald-100 mt-1">{r.counts.accounts} compte(s) bancaire(s)</p>
           <p className="text-[11px] text-emerald-100 mt-1 tabular-nums">
             Début de période {money(r.bankOpening)} · +{money(r.bankIn)} · −{money(r.bankOut)}
@@ -186,8 +184,8 @@ export default function TreasuryView({ report: r }: { report: TreasuryReport }) 
           <div className="flex items-center gap-2 text-violet-200">
             <Coins className="w-5 h-5" /><span className="text-sm font-bold uppercase tracking-wide">Trésorerie totale</span>
           </div>
-          <p className="text-4xl font-black tabular-nums mt-2">{money(r.grandTotal)}</p>
-          <p className="text-[11px] text-violet-200 mt-1">Caisse générale + comptes bancaires</p>
+          <p className="text-2xl 2xl:text-3xl font-black tabular-nums mt-2 break-words">{money(r.grandTotal)}</p>
+          <p className="text-[11px] text-violet-200 mt-1">Toutes les caisses + comptes bancaires — comme la Caisse Générale</p>
         </div>
       </div>
 

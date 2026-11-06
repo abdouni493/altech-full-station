@@ -42,7 +42,7 @@ export function CardNumberInput({ value, onChange, known }: { value: string; onC
   }, []);
   return (
     <div ref={ref} className="relative">
-      <input value={formatCard(value)} inputMode="numeric" placeholder="N° de carte"
+      <input data-testid="op-card" value={formatCard(value)} inputMode="numeric" placeholder="N° de carte"
         onFocus={() => setOpen(true)}
         onChange={e => { onChange(e.target.value.replace(/[^\dA-Za-z*]/g, '')); setOpen(true); }}
         className="input-field !h-10 !py-1.5 text-xs font-bold w-full tracking-wider" />
@@ -180,17 +180,17 @@ export default function JustifOperationsEditor({
                   </div>
                   <div>
                     <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5 block flex items-center gap-1"><Hash className="w-2.5 h-2.5" /> N° opération</label>
-                    <input value={o.operationNumber || ''} onChange={e => patchOp(o.id, { operationNumber: e.target.value })}
+                    <input data-testid="op-number" value={o.operationNumber || ''} onChange={e => patchOp(o.id, { operationNumber: e.target.value })}
                       placeholder="N° opération" className="input-field !h-10 !py-1.5 text-xs font-bold w-full" />
                   </div>
                   <div>
                     <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5 block">Quantité (L) — option.</label>
-                    <input type="number" step="0.01" value={o.quantity ?? ''} onChange={e => setQty(o, e.target.value)}
+                    <input data-testid="op-qty" type="number" step="0.01" value={o.quantity ?? ''} onChange={e => setQty(o, e.target.value)}
                       placeholder="Litres" className="input-field !h-10 !py-1.5 text-xs font-bold w-full" />
                   </div>
                   <div>
                     <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5 block">Montant (DA)</label>
-                    <input type="number" step="0.01" value={o.amount || ''} onChange={e => setAmount(o, e.target.value)}
+                    <input data-testid="op-amount" type="number" step="0.01" value={o.amount || ''} onChange={e => setAmount(o, e.target.value)}
                       placeholder="Montant" className={cn('input-field !h-10 !py-1.5 text-xs font-black w-full', !(o.amount > 0) && 'border-red-300')} />
                   </div>
                 </div>
@@ -226,7 +226,7 @@ export default function JustifOperationsEditor({
                   </div>
                   <div className="col-span-2 lg:col-span-1">
                     <label className="text-[8px] font-black text-slate-400 uppercase mb-0.5 block">Montant (DA)</label>
-                    <input type="number" step="0.01" value={o.amount || ''} onChange={e => patchOp(o.id, { amount: parseFloat(e.target.value) || 0 })}
+                    <input data-testid="op-amount" type="number" step="0.01" value={o.amount || ''} onChange={e => patchOp(o.id, { amount: parseFloat(e.target.value) || 0 })}
                       placeholder="Montant" className={cn('input-field !h-10 !py-1.5 text-xs font-black w-full', !(o.amount > 0) && 'border-red-300')} />
                   </div>
                 </div>

@@ -40,8 +40,9 @@ import { magasinProducts, magasinLabel } from '../lib/armoires';
 import { useMagasinStockMover } from '../components/armoires/StockTransferBuilder';
 import { printPurchaseInvoice, stationFromSettings } from './modules/_shared';
 import { clientLedgers } from '../lib/clientLedger';
+import { todayLocal } from '@/src/lib/period';
 
-const todayISO = () => new Date().toISOString().split('T')[0];
+const todayISO = () => todayLocal();
 const fmtQ = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
 
 const PAY_MODES = [
@@ -113,6 +114,37 @@ export default function CarburantVentes() {
     if (mag.length) moveMagasin(mag);
   };
 
+  /**
+   * Le compte du client suit la facture : son reste dû monte la colonne `debt`
+   * (celle que l'écran Clients compare au journal — sinon « Écart fiche »), et
+   * une facture payée sur l'avance la consomme. `before` est rendu (−1),
+   * `after` appliqué (+1) ; un client touché deux fois n'est écrit qu'une fois.
+   */
+  const syncClients = (before: ShopSale | null, after: ShopSale | null) => {
+    const delta = new Map<string, { debt: number; adv: number }>();
+    const add = (sale: ShopSale | null, sign: number) => {
+      if (!sale?.clientId) return;
+      const d = delta.get(sale.clientId) || { debt: 0, adv: 0 };
+      d.debt += sign * (Number(sale.rest) || 0);
+      if (String(sale.paymentMode).toUpperCase() === 'AVANCE') d.adv -= sign * (Number(sale.total) || 0);
+      delta.set(sale.clientId, d);
+    };
+    add(before, -1); add(after, +1);
+    delta.forEach((d, id) => {
+      const c = clients.find(x => x.id === id);
+      if (!c || (Math.abs(d.debt) < 0.005 && Math.abs(d.adv) < 0.005)) return;
+      const r2 = (v: number) => Math.round(v * 100) / 100;
+      dispatch({ type: 'UPDATE_CLIENT', payload: {
+        ...c,
+        debt: r2(Math.max(0, (c.debt || 0) + d.debt)),
+        ...(d.adv ? {
+          balance: r2((c.balance || 0) + d.adv),
+          advanceBalance: r2((c.advanceBalance ?? c.balance ?? 0) + d.adv),
+        } : {}),
+      } });
+    });
+  };
+
   const removeTreasury = (saleId: string) => treasuryTransactions
     .filter(t => t.refType === 'carburant_invoice' && t.refId === saleId)
     .forEach(t => dispatch({ type: 'DELETE_TREASURY_TX', payload: t.id }));
@@ -120,6 +152,7 @@ export default function CarburantVentes() {
   const doDelete = () => {
     if (!toDelete) return;
     applyStock(toDelete.invoice!.lines, +1);
+    syncClients(toDelete, null);
     removeTreasury(toDelete.id);
     dispatch({ type: 'DELETE_SHOP_SALE', payload: toDelete.id });
     toast.success(`Facture ${toDelete.invoice!.number} supprimée — stock rendu`);
@@ -253,6 +286,7 @@ export default function CarburantVentes() {
           invoices={invoices}
           onClose={() => setEditing(null)}
           applyStock={applyStock}
+          syncClients={syncClients}
           removeTreasury={removeTreasury}
           onSaved={(s, print) => { setEditing(null); if (print) doPrint(s); }}
         />
@@ -269,12 +303,13 @@ export default function CarburantVentes() {
 // ─── Formulaire ──────────────────────────────────────────────────────────────
 interface Line extends CarburantInvoiceLine { moduleKey?: MagasinKey; available?: number }
 
-function SaleForm({ initial, invoices, onClose, onSaved, applyStock, removeTreasury }: {
+function SaleForm({ initial, invoices, onClose, onSaved, applyStock, syncClients, removeTreasury }: {
   initial: ShopSale | null;
   invoices: ShopSale[];
   onClose: () => void;
   onSaved: (s: ShopSale, print: boolean) => void;
   applyStock: (lines: CarburantInvoiceLine[], sign: number) => void;
+  syncClients: (before: ShopSale | null, after: ShopSale | null) => void;
   removeTreasury: (saleId: string) => void;
 }) {
   const app = useAppState();
@@ -383,7 +418,8 @@ function SaleForm({ initial, invoices, onClose, onSaved, applyStock, removeTreas
   const taxes = useMemo(() => computeTaxes(ht, taxesRaw), [ht, taxesRaw]);
   const taxesAmount = sumTaxes(taxes);
   const total = Math.round((ht + tvaAmount + taxesAmount) * 100) / 100;
-  const paid = Math.min(total, paidAll ? total : Math.max(0, Number(paidAmount) || 0));
+  // Sur l'avance du client, la facture est prise ENTIÈRE sur son avance.
+  const paid = Math.min(total, paidAll || payMode === 'AVANCE' ? total : Math.max(0, Number(paidAmount) || 0));
   const rest = Math.max(0, Math.round((total - paid) * 100) / 100);
   const needsBank = !!PAY_MODES.find(m => m.id === payMode)?.bank;
   const stockIssues = lines.filter(l => l.quantity > availableOf(l) + 1e-9);
@@ -449,6 +485,7 @@ function SaleForm({ initial, invoices, onClose, onSaved, applyStock, removeTreas
     }
 
     dispatch({ type: initial ? 'UPDATE_SHOP_SALE' : 'ADD_SHOP_SALE', payload: sale });
+    syncClients(initial, sale);
     toast.success(initial ? `Facture ${number} modifiée` : `Facture ${number} enregistrée`);
     onSaved(sale, print);
   };

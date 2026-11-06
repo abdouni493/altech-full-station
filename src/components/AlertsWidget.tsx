@@ -9,6 +9,7 @@ import { BrigadeDecalageAlert, FuelInvoice, Purchase, useAppState } from '../sto
 import { useBizAll } from '../store/BizContext';
 import { MODULES, ModuleKey, ModuleState } from '../lib/bizConfig';
 import { pendingAppointments } from '../lib/paymentAppointments';
+import { todayLocal } from '@/src/lib/period';
 
 export interface AlertItem {
   id: string;
@@ -426,7 +427,7 @@ function bizPartAlerts(state: ModuleState | undefined, key: ModuleKey, dismissed
   const cfg = MODULES[key];
   const part = cfg.label;
   const out: AlertItem[] = [];
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayLocal();
   const in7Days = new Date();
   in7Days.setDate(in7Days.getDate() + 7);
   const in7DaysStr = in7Days.toISOString().split('T')[0];
@@ -580,7 +581,7 @@ function stationMoneyAlerts(
   dismissed?: string[],
 ): AlertItem[] {
   const out: AlertItem[] = [];
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayLocal();
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];

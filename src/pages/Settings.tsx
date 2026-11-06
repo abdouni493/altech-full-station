@@ -40,6 +40,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import QrCodePanel from "../components/QrCodePanel";
 import MagasinsSettings from "../components/MagasinsSettings";
+import { todayLocal } from '@/src/lib/period';
 
 const Settings = () => {
   const { t, i18n } = useTranslation();
@@ -55,13 +56,13 @@ const Settings = () => {
 
   // ── Caisse TPE state ────────────────────────────────────────────────────────
   const [tpeFilter, setTpeFilter] = useState<'today' | 'month' | 'period'>('today');
-  const [tpePeriodStart, setTpePeriodStart] = useState(new Date().toISOString().split('T')[0]);
-  const [tpePeriodEnd, setTpePeriodEnd] = useState(new Date().toISOString().split('T')[0]);
+  const [tpePeriodStart, setTpePeriodStart] = useState(todayLocal());
+  const [tpePeriodEnd, setTpePeriodEnd] = useState(todayLocal());
   const [selectedTpeMode, setSelectedTpeMode] = useState<'ALL' | 'TAG' | 'TPE'>('ALL');
   const [selectedTpeTx, setSelectedTpeTx] = useState<TpeTransaction | null>(null);
 
   const filteredTpeTransactions = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayLocal();
     const month = today.slice(0, 7);
     return (tpeTransactions || []).filter(tx => {
       const dateMatch = tpeFilter === 'today'

@@ -40,6 +40,7 @@ import { useAppState, useAppDispatch, useModulePermission, Supplier } from "../s
 import { supplierStats, unpaidSupplierInvoices } from "../lib/supplierDebt";
 import EmptyState from "../components/EmptyState";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { todayLocal } from '@/src/lib/period';
 
 const Suppliers = () => {
   const { t } = useTranslation();
@@ -83,14 +84,14 @@ const Suppliers = () => {
 
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
-    date: new Date().toISOString().split('T')[0],
+    date: todayLocal(),
     mode: 'ESPECES',
     chequeNumber: "",
     notes: ""
   });
 
   const [appointmentForm, setAppointmentForm] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: todayLocal(),
     amount: 0,
     linkedDeliveryNoteId: "",
     notes: ""
@@ -223,7 +224,7 @@ const Suppliers = () => {
 
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: `Paiement de ${paymentForm.amount.toLocaleString()} DA enregistré` } });
     setShowPaymentModal(false);
-    setPaymentForm({ amount: 0, date: new Date().toISOString().split('T')[0], mode: 'ESPECES', chequeNumber: "", notes: "" });
+    setPaymentForm({ amount: 0, date: todayLocal(), mode: 'ESPECES', chequeNumber: "", notes: "" });
   };
 
   const handleSaveAppointment = () => {
@@ -254,7 +255,7 @@ const Suppliers = () => {
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: `Rendez-vous créé: ${appointmentForm.amount.toLocaleString()} DA` } });
     setShowAppointmentForm(false);
     setAppointmentForm({
-      date: new Date().toISOString().split('T')[0],
+      date: todayLocal(),
       amount: 0,
       linkedDeliveryNoteId: "",
       notes: ""
@@ -999,7 +1000,7 @@ const Suppliers = () => {
                                       </button>
                                       {reste > 0 && (
                                         <button 
-                                          onClick={() => { setSelectedDeliveryNote(n); setShowPaymentModal(true); setPaymentForm({ amount: reste, date: new Date().toISOString().split('T')[0], mode: 'ESPECES', chequeNumber: "", notes: "" }); }}
+                                          onClick={() => { setSelectedDeliveryNote(n); setShowPaymentModal(true); setPaymentForm({ amount: reste, date: todayLocal(), mode: 'ESPECES', chequeNumber: "", notes: "" }); }}
                                           className="p-2 hover:bg-green-50 rounded-lg text-slate-300 hover:text-emerald-600 transition-all border border-transparent hover:border-green-100" 
                                           title="Enregistrer un Règlement"
                                         >

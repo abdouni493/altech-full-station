@@ -62,6 +62,7 @@ import BrigadeAccountingModal from "../components/BrigadeAccountingModal";
 import BrigadeFicheModal from "../components/BrigadeFicheModal";
 import JustifOperationsEditor, { useTagTypes } from "../components/brigade/JustifOperationsEditor";
 import { JustifEntryMode, JustifOperation, knownCardNumbers, opsTotal } from "../lib/justifOps";
+import { todayLocal } from '@/src/lib/period';
 
 /**
  * ─── L'ORDRE DE LA LISTE : la dernière brigade créée en tête ───────────────────
@@ -302,7 +303,7 @@ const Brigades = () => {
   const [chefId, setChefId] = useState("");
   const [selectedPompisteIds, setSelectedPompisteIds] = useState<string[]>([]);
   const [shiftType, setShiftType] = useState<'Matin' | 'Soir' | 'Nuit'>('Matin');
-  const [shiftDate, setShiftDate] = useState(new Date().toISOString().split('T')[0]);
+  const [shiftDate, setShiftDate] = useState(todayLocal());
   const [startTime, setStartTime] = useState("06:00");
   const [endTime, setEndTime] = useState("14:00");
   const [startIndices, setStartIndices] = useState<Record<string, number>>({});
@@ -332,8 +333,8 @@ const Brigades = () => {
   const [pompisteEncaissements, setPompisteEncaissements] = useState<Record<string, { cash: number; bons: number; cheques: number; pricePerLiter: number }>>({});
 
   // ─── New 7-step wizard state ──────────────────────────────────────────────
-  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(todayLocal());
+  const [endDate, setEndDate] = useState(todayLocal());
   const [startHour, setStartHour] = useState('06');
   const [startMinute, setStartMinute] = useState('00');
   const [endHour, setEndHour] = useState('14');
@@ -1385,7 +1386,14 @@ const Brigades = () => {
       if (x?.pompisteId) pumpMap[x.pompisteId] = x.pumpIds || [];
     });
     setPompistePumps(pumpMap);
-    setVersements({});
+    // Les versements horodatés reviennent avec la brigade : sans eux, une simple
+    // correction effaçait leur historique (le montant restait, fondu dans le
+    // champ « espèces »).
+    const vMap: Record<string, Array<{ id: string; amount: number; at: string; notes?: string }>> = {};
+    (b.versements || []).forEach(v => {
+      (vMap[v.pompisteId] = vMap[v.pompisteId] || []).push({ id: v.id, amount: Number(v.amount) || 0, at: v.at, notes: v.notes });
+    });
+    setVersements(vMap);
 
     // datetimes (string-split to avoid timezone drift)
     const splitDT = (iso?: string) => {
@@ -1418,7 +1426,11 @@ const Brigades = () => {
     // payments + justifications from the accounting record
     const payments: Record<string, number> = {};
     Object.entries(b.pompisteData || {}).forEach(([pid, d]: [string, any]) => {
-      payments[pid] = d?.collected?.cash ?? d?.totalCollected ?? 0;
+      // `collected.cash` = montant tapé + versements : on retire les versements,
+      // rechargés à part, pour ne pas les compter deux fois à l'enregistrement.
+      const total = d?.collected?.cash ?? d?.totalCollected ?? 0;
+      const versed = (b.versements || []).filter(v => v.pompisteId === pid).reduce((t, v) => t + (Number(v.amount) || 0), 0);
+      payments[pid] = Math.round((total - versed) * 100) / 100;
     });
     setPompistePayments(payments);
 
@@ -1525,7 +1537,7 @@ const Brigades = () => {
     setStartIndices({});
     setStartTankLevels({});
     setShiftType('Matin');
-    setShiftDate(new Date().toISOString().split('T')[0]);
+    setShiftDate(todayLocal());
     setActionMenuOpen(null);
     setActivateStep(1);
     setDeactivateStep(1);
@@ -1535,7 +1547,7 @@ const Brigades = () => {
     setVersements({});
     setCanReactivate(false);
     // New 7-step wizard resets
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayLocal();
     setStartDate(today);
     setEndDate(today);
     setStartHour('06'); setStartMinute('00');
@@ -4061,7 +4073,8 @@ const Brigades = () => {
                         const totalTheo = pompisteSales.reduce((s, x) => s + x.theoretical, 0) + totalProducts;
                         const totalProductPurchases = (Object.values(pompisteJustifications).flat() as WizardJustification[])
                           .filter(j => j.type === 'ACHAT_PRODUIT').reduce((a, j) => a + (j.amount || 0), 0);
-                        const totalCash = pompisteSales.reduce((s, x) => s + (pompistePayments[x.pompisteId] || 0), 0);
+                        const totalCash = pompisteSales.reduce((s, x) => s + (pompistePayments[x.pompisteId] || 0)
+                          + (versements[x.pompisteId] || []).reduce((a, v) => a + (v.amount || 0), 0), 0);
                         const totalJust = pompisteSales.reduce((s, x) => s + (pompisteJustifications[x.pompisteId] || []).reduce((a, j) => a + (j.amount || 0), 0), 0);
                         const solde = totalTheo - totalCash - totalJust;
                         return (

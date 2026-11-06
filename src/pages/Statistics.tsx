@@ -12,8 +12,12 @@ import {
 import ChartBox from "../components/ChartBox";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/src/lib/utils";
-import { useAppState, useModulePermission } from "../store/AppContext";
+import { useAppState, useModulePermission, expensePartOf } from "../store/AppContext";
 import { derivedFuelSales } from "../lib/carburantSales";
+import { within, localDayKey } from "../lib/period";
+import { isFuelPurchase } from "../lib/supplierDebt";
+import { brigadeNozzleRows, brigadePompisteGroups, justifiedByPompiste } from "../lib/brigadeCalc";
+import { todayLocal } from '@/src/lib/period';
 // xlsx pèse ~400 Ko : chargé à la demande au clic « Exporter », pas au démarrage.
 
 /* ── Colour palette matching the Sidebar ── */
@@ -124,11 +128,17 @@ const Statistics = () => {
 
   const { start: dateStart, end: dateEnd } = useMemo(() => getPeriodDates(period), [period]);
 
-  const filteredFuel  = useMemo(() => fuelSales.filter(s => { const d = new Date(s.date); return d >= dateStart && d <= dateEnd; }), [fuelSales, dateStart, dateEnd]);
-  const filteredShop  = useMemo(() => shopSales.filter(s => { const d = new Date(s.date); return d >= dateStart && d <= dateEnd; }), [shopSales, dateStart, dateEnd]);
-  const filteredExp   = useMemo(() => expenses.filter(e => { const d = new Date(e.date); return d >= dateStart && d <= dateEnd; }), [expenses, dateStart, dateEnd]);
-  const filteredBrig  = useMemo(() => brigades.filter(b => { const d = new Date(b.date); return d >= dateStart && d <= dateEnd; }), [brigades, dateStart, dateEnd]);
-  const filteredDel   = useMemo(() => deliveryNotes.filter(d2 => { const d = new Date(d2.date); return d >= dateStart && d <= dateEnd; }), [deliveryNotes, dateStart, dateEnd]);
+  // Même règle de période que tous les rapports : journées LOCALES.
+  const fromKey = localDayKey(dateStart.toISOString()), toKey = localDayKey(dateEnd.toISOString());
+  const inP = (d: string) => within(d, fromKey, toKey);
+  const filteredFuel  = useMemo(() => fuelSales.filter(s => inP(s.date)), [fuelSales, fromKey, toKey]);
+  const filteredShop  = useMemo(() => shopSales.filter(s => inP(s.date)), [shopSales, fromKey, toKey]);
+  // Statistiques du CARBURANT : ses dépenses seulement (comme le rapport Carburant).
+  const filteredExp   = useMemo(() => expenses.filter(e => inP(e.date) && expensePartOf(e) === 'carburant'), [expenses, fromKey, toKey]);
+  const filteredBrig  = useMemo(() => brigades.filter(b => inP(b.date)), [brigades, fromKey, toKey]);
+  const filteredDel   = useMemo(() => deliveryNotes.filter(d2 => inP(d2.date)), [deliveryNotes, fromKey, toKey]);
+  // Les achats carburant de l'écran Achats Carburant (les BL ne sont que l'ancien format).
+  const filteredFuelPurch = useMemo(() => (purchases || []).filter(p => isFuelPurchase(p) && inP(p.date)), [purchases, fromKey, toKey]);
 
   /* ── Fuel area chart ── */
   const fuelChartData = useMemo(() => {
@@ -211,7 +221,13 @@ const Statistics = () => {
   const brigadePerf = useMemo(() => filteredBrig.map(b => {
     const chef  = brigadeChefs.find(c => c.id === b.chefId);
     const bFuel = filteredFuel.filter(s => s.brigadeId === b.id);
-    const decalage = b.pompisteData ? Object.values(b.pompisteData).reduce((a, d: any) => a + (d.decalage ?? 0), 0) : 0;
+    // Le décalage RÉEL de la brigade (théorique − espèces − justifié), signé
+    // comme avant : négatif = manquant. `pompisteData.decalage` n'était pas mis
+    // à jour par la comptabilité et ignorait les justifications.
+    const acc = (app.brigadeAccountings || []).find(a => a.brigadeId === b.id);
+    const ctx = { pumps: app.pumps, tanks: app.tanks, pumpNozzles: app.pumpNozzles || [], pompistes: app.pompistes, settings: app.settings };
+    const groups = brigadePompisteGroups(b, ctx, brigadeNozzleRows(b, ctx), justifiedByPompiste(acc?.justifications));
+    const decalage = -groups.reduce((a, g) => a + g.ecart, 0);
     return {
       id:       b.id,
       date:     b.date,
@@ -223,13 +239,13 @@ const Statistics = () => {
       decalage,
       status:   b.status,
     };
-  }), [filteredBrig, filteredFuel, brigadeChefs]);
+  }), [filteredBrig, filteredFuel, brigadeChefs, app]);
 
   /* ── KPIs ── */
   const totalRevenue = filteredFuel.reduce((a, c) => a + c.total, 0) + filteredShop.reduce((a, c) => a + c.total, 0);
   const totalLiters  = filteredFuel.reduce((a, c) => a + c.liters, 0);
   const totalExpenses = filteredExp.reduce((a, c) => a + c.amount, 0);
-  const totalFuelPurchases = filteredDel.reduce((a, c) => a + c.total, 0);
+  const totalFuelPurchases = filteredDel.reduce((a, c) => a + c.total, 0) + filteredFuelPurch.reduce((a, c) => a + c.total, 0);
   const netProfit = totalRevenue - totalExpenses - totalFuelPurchases;
 
   /* ── Export ── */
@@ -239,7 +255,7 @@ const Statistics = () => {
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Pompes");
-    XLSX.writeFile(wb, `Stats_${new Date().toISOString().split("T")[0]}.xlsx`);
+    XLSX.writeFile(wb, `Stats_${todayLocal()}.xlsx`);
   };
 
   return (
@@ -313,7 +329,7 @@ const Statistics = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
         <KpiCard icon={TrendingUp}   label="Recette Totale"       value={`${totalRevenue.toLocaleString()} DA`}   color="blue"   delay={0}    />
         <KpiCard icon={Droplets}     label="Volume Distribué"     value={`${totalLiters.toLocaleString()} L`}     color="purple" delay={0.05} />
-        <KpiCard icon={ShoppingCart} label="Ventes Magasin"       value={`${filteredShop.reduce((a,c)=>a+c.total,0).toLocaleString()} DA`} color="gold" delay={0.1} />
+        <KpiCard icon={ShoppingCart} label="Factures de vente"       value={`${filteredShop.reduce((a,c)=>a+c.total,0).toLocaleString()} DA`} color="gold" delay={0.1} />
         <KpiCard icon={CreditCard}   label="Bénéfice Net (est.)" value={`${netProfit.toLocaleString()} DA`}      color={netProfit >= 0 ? "green" : "red"} delay={0.15} />
       </div>
 

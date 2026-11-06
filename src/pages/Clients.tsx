@@ -56,6 +56,7 @@ import { ClientStatementFiche } from "../components/biz/ClientStatementFiche";
 import { printFiche } from "../components/biz/ReportFiche";
 import ClientDossier from "../components/clients/ClientDossier";
 import { ClientFormModal } from "../components/clients/ClientFormModal";
+import { todayLocal } from '@/src/lib/period';
 
 /** Receipt number of a debt payment, derived from its transaction id. */
 const receiptRef = (txId: string) => `REG-${txId.slice(0, 8).toUpperCase()}`;
@@ -155,7 +156,7 @@ const Clients = () => {
     debt: 0,
     openingDebt: 0,
     openingAdvance: 0,
-    openingDate: new Date().toISOString().split("T")[0],
+    openingDate: todayLocal(),
     openingNotes: "",
     nif: "",
     nis: "",
@@ -168,7 +169,7 @@ const Clients = () => {
 
   const [rechargeForm, setRechargeForm] = useState({
     amount: 0,
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocal(),
     // Une recharge est de l'argent que le client REMET : elle doit dire par quel
     // moyen, sinon on ne sait pas dans quel compte le déposer.
     mode: "ESPECES",
@@ -180,7 +181,7 @@ const Clients = () => {
 
   const [paymentForm, setPaymentForm] = useState({
     amount: 0,
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocal(),
     mode: "ESPECES",
     chequeNumber: "",
     bankAccountId: "",
@@ -189,7 +190,7 @@ const Clients = () => {
 
   const [showAppointmentForm, setShowAppointmentForm] = useState(false);
   const [appointmentForm, setAppointmentForm] = useState({
-    date: new Date().toISOString().split("T")[0],
+    date: todayLocal(),
     amount: 0,
     linkedSaleId: "",
     notes: ""
@@ -263,7 +264,7 @@ const Clients = () => {
           debt: openDebt,
           openingDebt: openDebt,
           openingAdvance: openAdv,
-          openingDate: clientForm.openingDate || new Date().toISOString().split("T")[0],
+          openingDate: clientForm.openingDate || todayLocal(),
           transactionHistory: []
         };
         dispatch({ type: 'ADD_CLIENT', payload: newClient });
@@ -460,7 +461,7 @@ const Clients = () => {
       transactionHistory: [...(selectedClient.transactionHistory || []), payment],
     });
     setRechargeForm({
-      amount: 0, date: new Date().toISOString().split("T")[0],
+      amount: 0, date: todayLocal(),
       mode: "ESPECES", bankAccountId: liveBankAccounts[0]?.id || "", chequeNumber: "",
       notes: "", receiptPhoto: "",
     });
@@ -645,7 +646,7 @@ const Clients = () => {
 
     setShowPayment(false);
     setSelectedSale(null);
-    setPaymentForm({ amount: 0, date: new Date().toISOString().split("T")[0], mode: "ESPECES", chequeNumber: "", bankAccountId: "", notes: "" });
+    setPaymentForm({ amount: 0, date: todayLocal(), mode: "ESPECES", chequeNumber: "", bankAccountId: "", notes: "" });
   };
 
   /** Opens the debt modal for one client — global debt, no invoice attached. */
@@ -657,7 +658,7 @@ const Clients = () => {
       // avance déduite : proposer la dette brute à un client qui a déjà versé
       // revenait à lui faire payer deux fois le même carburant.
       amount: Math.max(0, ledgers[client.id]?.netDebt ?? client.debt),
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       mode: "ESPECES", chequeNumber: "", bankAccountId: liveBankAccounts[0]?.id || "", notes: "",
     });
     setShowPayment(true);
@@ -691,7 +692,7 @@ const Clients = () => {
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: `Rendez-vous créé: ${appointmentForm.amount.toLocaleString()} DA` } });
     setShowAppointmentForm(false);
     setAppointmentForm({
-      date: new Date().toISOString().split("T")[0],
+      date: todayLocal(),
       amount: 0,
       linkedSaleId: "",
       notes: ""
@@ -1554,7 +1555,7 @@ const Clients = () => {
             setSelectedSale({ id: line.id, label: line.label });
             setPaymentForm({
               amount: Math.min(line.debtEffect, payableDebt(selectedClient, ledger)),
-              date: new Date().toISOString().split("T")[0],
+              date: todayLocal(),
               mode: "ESPECES", chequeNumber: "",
               bankAccountId: liveBankAccounts[0]?.id || "", notes: "",
             });

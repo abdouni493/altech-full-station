@@ -47,8 +47,9 @@ import {
   money, formatDate, PeriodFilter, Period, inPeriod,
 } from '../components/biz/Kit';
 import { TX_LABEL } from './BankAccounts';
+import { todayLocal } from '@/src/lib/period';
 
-const todayISO = () => new Date().toISOString().split('T')[0];
+const todayISO = () => todayLocal();
 
 /**
  * Un mouvement d'UNE caisse : la ligne élémentaire dont la somme FAIT le solde
@@ -722,7 +723,7 @@ export default function CaisseGenerale() {
             ))}
           </div>
           <p className="text-[10px] text-blue-300 tabular-nums mt-2 leading-snug">
-            {money(partBalances.carburant)} + {money(partBalances.restaurant)} + {money(partBalances.cafeteria)} + {money(partBalances.lavage)} = {money(caissesActivites)}
+            {activityParts().map(k => money(partBalances[k])).join(' + ')} = {money(caissesActivites)}
           </p>
         </div>
 

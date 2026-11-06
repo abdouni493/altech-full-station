@@ -12,6 +12,7 @@ import { useAppState, useAppDispatch, useModulePermission, Tank, Product, Pump, 
 import EmptyState from "../components/EmptyState";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { ViewToggle } from "@/src/components/biz/Kit";
+import { todayLocal } from '@/src/lib/period';
 
 /* ── Colour palette matching the Sidebar ── */
 const C = {
@@ -599,14 +600,14 @@ const Inventory = () => {
 
   /* Form state */
   const [invType, setInvType] = useState<"Carburant" | "Magasin">("Carburant");
-  const [meta, setMeta]       = useState({ name: "", description: "", date: new Date().toISOString().split("T")[0] });
+  const [meta, setMeta]       = useState({ name: "", description: "", date: todayLocal() });
   const [fuelData, setFuelData] = useState<Record<string, { degrees: number; actualQty: number }>>({});
   const [pumpData, setPumpData] = useState<Record<string, { actualIndex: number }>>({});
   const [shopData, setShopData] = useState<Record<string, { actualQty: number }>>({});
   const [shopSearch, setShopSearch] = useState("");
 
   const resetForm = () => {
-    setStep(0); setMeta({ name: "", description: "", date: new Date().toISOString().split("T")[0] });
+    setStep(0); setMeta({ name: "", description: "", date: todayLocal() });
     setFuelData({}); setPumpData({}); setShopData({}); setShopSearch("");
   };
 

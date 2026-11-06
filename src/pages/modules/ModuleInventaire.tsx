@@ -48,6 +48,7 @@ import {
 } from '@/src/components/biz/Kit';
 import { printFiche } from '@/src/components/biz/ReportFiche';
 import { InventaireFiche, ComparisonFiche } from '@/src/components/biz/InventaireFiche';
+import { todayLocal } from '@/src/lib/period';
 
 export default function ModuleInventaire({ moduleKey }: { moduleKey: ModuleKey }) {
   const cfg = MODULES[moduleKey];
@@ -350,7 +351,7 @@ function InventaireWizard({ moduleKey, initial, author, onClose }: {
 
   const [step, setStep] = useState<1 | 2>(initial ? 2 : 1);
   const [date, setDate] = useState(
-    initial ? initial.date.split('T')[0] : new Date().toISOString().split('T')[0]);
+    initial ? initial.date.split('T')[0] : todayLocal());
   const [notes, setNotes] = useState(initial?.notes || '');
   const [query, setQuery] = useState('');
   const [catFilter, setCatFilter] = useState('all');

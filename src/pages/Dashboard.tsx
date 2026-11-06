@@ -466,16 +466,40 @@ const Dashboard = () => {
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
 
-  const todayStr = now.toISOString().split("T")[0];
-  const todayFuelSales  = useMemo(() => fuelSales.filter(s => s.date.startsWith(todayStr)),  [fuelSales,  todayStr]);
-  const todayShopSales  = useMemo(() => shopSales.filter(s => s.date.startsWith(todayStr)),  [shopSales,  todayStr]);
-  const todayExpenses   = useMemo(() => expenses.filter(e => e.date.startsWith(todayStr)),   [expenses,   todayStr]);
+  // Journée LOCALE : les brigades sont datées à l'heure de la station. Lire la
+  // date UTC décalait « aujourd'hui » d'un jour entre minuit et 1 h du matin.
+  const localDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const dayOf = (v: string) => { const d = new Date(v); return /^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(d.getTime()) ? String(v).slice(0, 10) : localDay(d); };
+  const todayStr = localDay(now);
+  const yesterdayStr = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const dayTotals = (day: string) => {
+    const fuel = fuelSales.filter(s => dayOf(s.date) === day);
+    const shop = shopSales.filter(s => dayOf(s.date) === day);
+    const exp = expenses.filter(e => dayOf(e.date) === day);
+    return {
+      fuel: fuel.reduce((s, x) => s + x.total, 0),
+      shop: shop.reduce((s, x) => s + x.total, 0),
+      liters: fuel.reduce((s, x) => s + x.liters, 0),
+      expense: exp.reduce((s, x) => s + x.amount, 0),
+    };
+  };
+  const today = useMemo(() => dayTotals(todayStr), [fuelSales, shopSales, expenses, todayStr]);
+  const yesterday = useMemo(() => dayTotals(yesterdayStr), [fuelSales, shopSales, expenses, yesterdayStr]);
 
-  const fuelRevenue  = useMemo(() => todayFuelSales.reduce((s, x) => s + x.total,  0), [todayFuelSales]);
-  const shopRevenue  = useMemo(() => todayShopSales.reduce((s, x) => s + x.total,  0), [todayShopSales]);
-  const todayLiters  = useMemo(() => todayFuelSales.reduce((s, x) => s + x.liters, 0), [todayFuelSales]);
-  const totalExpense = useMemo(() => todayExpenses.reduce((s, x)  => s + x.amount, 0), [todayExpenses]);
+  const fuelRevenue  = today.fuel;
+  const shopRevenue  = today.shop;
+  const todayLiters  = today.liters;
+  const totalExpense = today.expense;
   const netRevenue   = fuelRevenue + shopRevenue - totalExpense;
+  /** Évolution RÉELLE par rapport à la veille (aucun chiffre inventé). */
+  const trendOf = (cur: number, prev: number) => {
+    if (!prev) return cur ? { label: 'nouveau', up: true } : null;
+    const pct = ((cur - prev) / Math.abs(prev)) * 100;
+    return { label: `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs hier`, up: pct >= 0 };
+  };
+  const salesTrend = trendOf(fuelRevenue + shopRevenue, yesterday.fuel + yesterday.shop);
+  const litersTrend = trendOf(todayLiters, yesterday.liters);
+  const expenseTrend = trendOf(totalExpense, yesterday.expense);
 
   /* global active brigade (admin/gerant header badge) */
   const activeBrigade = useMemo(() => brigades.find(b => b.status === "Ouverte"), [brigades]);
@@ -492,11 +516,11 @@ const Dashboard = () => {
   /* chart data (admin/gerant only) */
   const chartData = useMemo(() => Array.from({ length: 7 }, (_, i) => {
     const d = new Date(now); d.setDate(d.getDate() - (6 - i));
-    const ds = d.toISOString().split("T")[0];
+    const ds = localDay(d);
     return {
       name: d.toLocaleDateString("fr-FR", { weekday: "short" }),
-      Carburant: fuelSales.filter(s => s.date.startsWith(ds)).reduce((a, s) => a + s.total, 0),
-      Magasin:   shopSales.filter(s => s.date.startsWith(ds)).reduce((a, s) => a + s.total, 0),
+      Carburant: fuelSales.filter(s => dayOf(s.date) === ds).reduce((a, s) => a + s.total, 0),
+      Magasin:   shopSales.filter(s => dayOf(s.date) === ds).reduce((a, s) => a + s.total, 0),
     };
   }), [fuelSales, shopSales, now]);
 
@@ -627,7 +651,7 @@ const Dashboard = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: "Carburant", value: fuelRevenue,  color: "blue-700",  Icon: Droplets,    bg: "blue-600" },
-            { label: "Magasin",   value: shopRevenue,  color: "purple-700", Icon: ShoppingCart, bg: "purple-600" },
+            { label: "Factures de vente", value: shopRevenue,  color: "purple-700", Icon: ShoppingCart, bg: "purple-600" },
             { label: "Dépenses",  value: totalExpense, color: "red-700",   Icon: TrendingUp,  bg: "red-600" },
           ].map(({ label, value, color, Icon, bg }) => (
             <div key={label} className="p-5 rounded-2xl border bg-white shadow-sm flex flex-col justify-center relative overflow-hidden">
@@ -649,10 +673,10 @@ const Dashboard = () => {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
-        <KpiCard label="Ventes Totales (Jour)" value={fuelRevenue + shopRevenue} suffix=" DA" icon={DollarSign} color="#003087" trend="+12%" trendPos delay={0}    progress={75} />
-        <KpiCard label="Litres Vendus (Jour)"  value={todayLiters}              suffix=" L"  icon={Fuel}       color="#FFB800" trend="+3%"  trendPos delay={0.05} progress={40} />
-        <KpiCard label="Dépenses (Jour)"       value={totalExpense}             suffix=" DA" icon={TrendingUp}  color="#ef4444" trend="-5%"  trendPos={false} delay={0.1} progress={20} />
-        <KpiCard label="Clients Actifs"        value={clients.length}           suffix=""    icon={Users}      color="#22c55e" delay={0.15} progress={90} />
+        <KpiCard label="Ventes Totales (Jour)" value={fuelRevenue + shopRevenue} suffix=" DA" icon={DollarSign} color="#003087" trend={salesTrend?.label} trendPos={salesTrend?.up} delay={0} />
+        <KpiCard label="Litres Vendus (Jour)"  value={todayLiters}              suffix=" L"  icon={Fuel}       color="#FFB800" trend={litersTrend?.label} trendPos={litersTrend?.up} delay={0.05} />
+        <KpiCard label="Dépenses (Jour)"       value={totalExpense}             suffix=" DA" icon={TrendingUp}  color="#ef4444" trend={expenseTrend?.label} trendPos={expenseTrend ? !expenseTrend.up : undefined} delay={0.1} />
+        <KpiCard label="Clients"               value={clients.length}           suffix=""    icon={Users}      color="#22c55e" delay={0.15} />
       </div>
 
       {/* Main grid */}

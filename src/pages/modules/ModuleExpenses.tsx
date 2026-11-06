@@ -15,6 +15,7 @@ import {
   RowActions, ActionBtn, Edit2, Trash2, Confirm, Modal, Field, Input, Textarea, Select,
   money, formatDate, PeriodFilter, Period, inPeriod, ViewToggle, Table,
 } from '@/src/components/biz/Kit';
+import { todayLocal } from '@/src/lib/period';
 
 export default function ModuleExpenses({ moduleKey }: { moduleKey: ModuleKey }) {
   const cfg = MODULES[moduleKey];
@@ -171,7 +172,7 @@ function ExpenseForm({ moduleKey, initial, cats, onClose }: { moduleKey: ModuleK
 
   const [f, setF] = useState<Partial<BizExpense>>(initial
     ? { ...initial, accountId: initial.accountId || coffer }
-    : { name: '', description: '', amount: 0, date: new Date().toISOString().split('T')[0], category: '', accountId: coffer, paymentMode: 'Espèces' });
+    : { name: '', description: '', amount: 0, date: todayLocal(), category: '', accountId: coffer, paymentMode: 'Espèces' });
   const set = (k: keyof BizExpense, v: any) => setF(p => ({ ...p, [k]: v }));
   const paidCash = !f.accountId || f.accountId === coffer || f.accountId.startsWith('CAISSE');
   const amount = Number(f.amount) || 0;
@@ -187,7 +188,7 @@ function ExpenseForm({ moduleKey, initial, cats, onClose }: { moduleKey: ModuleK
       name: f.name!.trim(),
       description: f.description,
       amount,
-      date: f.date || new Date().toISOString().split('T')[0],
+      date: f.date || todayLocal(),
       category: f.category,
       accountId: paidCash ? coffer : f.accountId,
       paymentMode: paidCash ? 'Espèces' : (f.paymentMode && f.paymentMode !== 'Espèces' ? f.paymentMode : 'Virement'),

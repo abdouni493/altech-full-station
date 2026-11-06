@@ -7,12 +7,13 @@ import { motion, AnimatePresence } from "motion/react";
 import { X, User as UserIcon, ShieldCheck, Lock, ChevronDown, Loader2, Save } from "lucide-react";
 import { cn, newId } from "@/src/lib/utils";
 import { Client, useAppDispatch } from "../../store/AppContext";
+import { todayLocal } from '@/src/lib/period';
 
 export function blankClientForm(): Partial<Client> {
   return {
     name: "", type: "PARTICULIER", paymentMode: "CASH", phone: "", email: "", cin: "", address: "",
     contactPerson: "", creditLimit: 0, paymentDelay: 0, balance: 0, debt: 0,
-    openingDebt: 0, openingAdvance: 0, openingDate: new Date().toISOString().split("T")[0], openingNotes: "",
+    openingDebt: 0, openingAdvance: 0, openingDate: todayLocal(), openingNotes: "",
     nif: "", nis: "", article: "", rc: "",
   };
 }
@@ -338,7 +339,7 @@ export function NewClientModal({ onClose, onCreated, initialName }: {
     const c: Client = {
       ...form as Client, id: newId(), balance: openAdv, advanceBalance: openAdv, debt: openDebt,
       openingDebt: openDebt, openingAdvance: openAdv,
-      openingDate: form.openingDate || new Date().toISOString().split("T")[0], transactionHistory: [],
+      openingDate: form.openingDate || todayLocal(), transactionHistory: [],
     };
     dispatch({ type: 'ADD_CLIENT', payload: c });
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: "Client ajouté" } });

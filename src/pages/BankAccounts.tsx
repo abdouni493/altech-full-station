@@ -19,7 +19,7 @@ import { newId } from '@/src/lib/utils';
 import {
   useAppState, useAppDispatch, useModulePermission,
   BankAccount, TreasuryTransaction, CAISSE_ID, CAISSE_PART_ID, CASH_ACCOUNT_LABEL,
-  accountLabelOf, bankBalanceOf, caisseBalanceOf, partOfCashAccount,
+  accountLabelOf, bankBalanceOf, caisseBalanceOf, financeCashBalance, partOfCashAccount,
 } from '../store/AppContext';
 import { repairBrigadeBankLines } from '../lib/brigadeBankLines';
 import { isMagasin2Enabled } from '../lib/bizConfig';
@@ -28,8 +28,9 @@ import {
   EmptyState, CardGrid, GlassCard, RowActions, ActionBtn, Table, ViewToggle,
   money, formatDate, PeriodFilter, Period, inPeriod,
 } from '../components/biz/Kit';
+import { todayLocal } from '@/src/lib/period';
 
-const todayISO = () => new Date().toISOString().split('T')[0];
+const todayISO = () => todayLocal();
 
 export default function BankAccounts() {
   const {
@@ -67,7 +68,9 @@ export default function BankAccounts() {
     [bankAccounts, treasuryTransactions],
   );
   const totalBank = accounts.reduce((s, a) => s + a.balance, 0);
-  const caisse = caisseBalanceOf(treasuryTransactions);
+  // Le solde de la caisse de la FINANCE — celui de l'écran Caisse Générale.
+  // Un virement vers la caisse générale lui revient (part « Finance »).
+  const caisse = financeCashBalance(treasuryTransactions);
 
   const del = () => {
     if (!toDelete) return;
@@ -152,7 +155,7 @@ export default function BankAccounts() {
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard icon={Building2} label="Comptes" value={accounts.length} tone="blue" />
         <StatCard icon={Landmark} label="Total en banque" value={money(totalBank)} tone="green" />
-        <StatCard icon={PiggyBank} label="Caisse générale" value={money(caisse)} tone="amber" />
+        <StatCard icon={PiggyBank} label="Caisse Finance (générale)" value={money(caisse)} tone="amber" />
       </div>
 
       {accounts.length > 0 && (

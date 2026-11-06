@@ -6,6 +6,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "../lib/utils";
 import { useAppState, WorkerPaymentRecord } from "../store/AppContext";
+import { todayLocal } from '@/src/lib/period';
 
 const MyPayments = () => {
   const { t } = useTranslation();
@@ -108,7 +109,7 @@ const MyPayments = () => {
         retenueDecalage,
         netSalary: net,
         isPaid: false,
-        paymentDate: new Date().toISOString().slice(0, 10),
+        paymentDate: todayLocal(),
         paymentMode: 'ESPECES' as const,
         acomptes: acomptes.filter((a: any) => !a.isPaid && a.date.startsWith(month)),
         absences: absences.filter((a: any) => !a.isPaid && a.date.startsWith(month)),

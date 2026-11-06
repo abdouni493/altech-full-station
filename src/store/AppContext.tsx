@@ -19,6 +19,7 @@ import type { RealtimeHealth } from '../lib/supabase';
 import { newId, degreesFromLiters } from '../lib/utils';
 import { MODULES, applyMagasinSettings, isMagasin2Enabled } from '../lib/bizConfig';
 import type { ConsigneMode, ConsigneState } from '../lib/bizConfig';
+import { todayLocal } from '@/src/lib/period';
 
 // ─── Null-or-zero sanitizer ────────────────────────────────────────────────────
 // Converts empty-string or undefined to null so optional UUID / date FK columns
@@ -1149,6 +1150,24 @@ export function bankBalanceOf(
 /** Live solde of the general cash box (pure ledger, no opening balance). */
 export function caisseBalanceOf(txs: TreasuryTransaction[]): number {
   return ledgerNetFor(CAISSE_ID, txs);
+}
+
+/**
+ * La caisse de la FINANCE : la part du tiroir commun qui n'appartient à aucune
+ * activité (lignes du grand livre sans partie, ou imputées à la Finance). C'est
+ * LA définition de l'écran Caisse Générale — tous les écrans qui affichent le
+ * solde de la Finance doivent la lire ici, sinon ils annoncent le tiroir entier
+ * (argent des activités compris) et contredisent la Caisse Générale.
+ */
+export function financeCashBalance(txs: TreasuryTransaction[]): number {
+  let net = 0;
+  for (const t of txs || []) {
+    if ((t.part || 'systeme') !== 'systeme') continue;
+    const into = t.accountTo === CAISSE_ID, out = t.accountFrom === CAISSE_ID;
+    if (into === out) continue;
+    net += into ? (Number(t.amount) || 0) : -(Number(t.amount) || 0);
+  }
+  return net;
 }
 
 export interface DeliveryNote {
@@ -3185,7 +3204,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
                 id: j.id,
                 brigade_id: a.brigadeId,
                 accounting_id: a.id,
-                date: new Date().toISOString().split('T')[0],
+                date: todayLocal(),
                 mode: j.justificationType,
                 client_name: nz(j.clientName),
                 client_id: nz(j.clientId),
@@ -3207,7 +3226,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
               id: newId(),
               pompiste_id: pompisteId,
               brigade_id: a.brigadeId,
-              date: new Date().toISOString().split('T')[0],
+              date: todayLocal(),
               amount: Math.abs(d.money),
               type: d.money < 0 ? 'BONUS' : 'RETENUE',
             });
@@ -3219,7 +3238,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
                 id: newId(),
                 pompiste_id: a.restAssignedWorkerId,
                 brigade_id: a.brigadeId,
-                date: new Date().toISOString().split('T')[0],
+                date: todayLocal(),
                 amount: Math.abs(a.restAssignedAmount || 0),
                 type: (a.rest || 0) < 0 ? 'BONUS' : 'RETENUE',
               })
@@ -3266,7 +3285,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
                 id: j.id,
                 brigade_id: a.brigadeId,
                 accounting_id: a.id,
-                date: new Date().toISOString().split('T')[0],
+                date: todayLocal(),
                 mode: j.justificationType,
                 client_name: nz(j.clientName),
                 client_id: nz(j.clientId),
@@ -3289,7 +3308,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
               id: newId(),
               pompiste_id: pompisteId,
               brigade_id: a.brigadeId,
-              date: new Date().toISOString().split('T')[0],
+              date: todayLocal(),
               amount: Math.abs(d.money),
               type: d.money < 0 ? 'BONUS' : 'RETENUE',
             });
@@ -3300,7 +3319,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
                 id: newId(),
                 pompiste_id: a.restAssignedWorkerId,
                 brigade_id: a.brigadeId,
-                date: new Date().toISOString().split('T')[0],
+                date: todayLocal(),
                 amount: Math.abs(a.restAssignedAmount || 0),
                 type: (a.rest || 0) < 0 ? 'BONUS' : 'RETENUE',
               })
@@ -3822,6 +3841,8 @@ interface AppProviderProps {
 
 export const AppProvider = ({ children }: AppProviderProps) => {
   const [state, dispatch] = useReducer(appReducer, initialState);
+  // Instantané en lecture seule pour l'environnement de test (tests/audit).
+  useEffect(() => { try { (globalThis as any).__ALTECH_APP_STATE__ = state; } catch { /* ignore */ } }, [state]);
 
   // Id of the user the store has been hydrated for. Doubles as the
   // double-invocation guard (StrictMode / Concurrent Mode) the old

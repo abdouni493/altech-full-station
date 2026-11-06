@@ -20,6 +20,7 @@ import ReportView from '@/src/components/biz/ReportView';
 import AnalyticsView from '@/src/components/biz/AnalyticsView';
 import ProductProfitView from '@/src/components/biz/ProductProfitView';
 import { ModuleFiche, printFiche } from '@/src/components/biz/ReportFiche';
+import { todayLocal } from '@/src/lib/period';
 
 type Tab = 'rapport' | 'produits' | 'analyses';
 
@@ -32,7 +33,7 @@ export default function ModuleReports({ moduleKey }: { moduleKey: ModuleKey }) {
 
   const firstDay = new Date(); firstDay.setDate(1);
   const [from, setFrom] = useState(firstDay.toISOString().split('T')[0]);
-  const [to, setTo] = useState(new Date().toISOString().split('T')[0]);
+  const [to, setTo] = useState(todayLocal());
   const [range, setRange] = useState({ from, to });
   const [tab, setTab] = useState<Tab>('rapport');
   /** Découpage du temps des graphiques — automatique tant qu'on n'y touche pas. */

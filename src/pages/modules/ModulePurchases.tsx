@@ -23,6 +23,7 @@ import {
 } from '@/src/components/biz/Kit';
 import { ProductModal, ContactModal, PayDebtModal, printPurchaseInvoice, productMatches, stationFromSettings } from './_shared';
 import PurchaseLabelsModal from '@/src/components/biz/PurchaseLabelsModal';
+import { todayLocal } from '@/src/lib/period';
 
 export default function ModulePurchases({ moduleKey }: { moduleKey: ModuleKey }) {
   const cfg = MODULES[moduleKey];
@@ -352,7 +353,7 @@ function PurchaseForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; i
   /** Produit tout juste ajouté, signalé en tête de liste. */
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState(initial?.supplierId || '');
-  const [date, setDate] = useState(initial ? initial.date.split('T')[0] : new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(initial ? initial.date.split('T')[0] : todayLocal());
   const [paidStr, setPaidStr] = useState<string>(initial ? String(initial.paid) : '');
   const [showProductModal, setShowProductModal] = useState(false);
   const [showSupplierModal, setShowSupplierModal] = useState(false);

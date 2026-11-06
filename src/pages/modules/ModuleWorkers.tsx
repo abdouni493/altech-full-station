@@ -23,6 +23,7 @@ import {
   PageHeader, StatCard, SearchInput, EmptyState, ViewToggle, Table, Badge, RowActions, ActionBtn,
   Confirm, Modal, Field, Input, Select, Switch, InlineCreate, money, formatDate,
 } from '@/src/components/biz/Kit';
+import { todayLocal } from '@/src/lib/period';
 
 // Same rule as the fuel-station worker pages: 3-32 chars, lowercase, digits, . _ -
 const USERNAME_REGEX = /^[a-z0-9._-]{3,32}$/;
@@ -388,7 +389,7 @@ function WorkerForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; ini
   const [f, setF] = useState<Partial<BizWorker>>(initial || {
     name: '', birthday: '', cin: '', phone: '', roleName: '', paid: true, salaryType: 'mois', salaryAmount: 0, percentage: 0,
     workerKind: 'lavage', workDays: DEFAULT_WORK_DAYS, cnasDate: '',
-    hasAccount: false, email: '', username: '', password: '', startDate: new Date().toISOString().split('T')[0],
+    hasAccount: false, email: '', username: '', password: '', startDate: todayLocal(),
   });
   const toggleDay = (idx: number) => setF(p => {
     const cur = p.workDays && p.workDays.length ? p.workDays : DEFAULT_WORK_DAYS;
@@ -456,7 +457,7 @@ function WorkerForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; ini
       workDays: f.salaryType === 'jour' ? (f.workDays && f.workDays.length ? f.workDays : DEFAULT_WORK_DAYS) : initial?.workDays,
       cnasDate: f.cnasDate || undefined,
       hasAccount, email: f.email, username: username || undefined, password: f.password,
-      startDate: f.startDate || new Date().toISOString().split('T')[0],
+      startDate: f.startDate || todayLocal(),
       permissions: initial?.permissions || {}, acomptes: initial?.acomptes || [], absences: initial?.absences || [], payments: initial?.payments || [],
       inventoryLiable: !!f.inventoryLiable,
       dismissedInventaireIds: initial?.dismissedInventaireIds,
@@ -877,7 +878,7 @@ function PermsModal({ moduleKey, worker, onClose }: { moduleKey: ModuleKey; work
 // ─── Acompte ──────────────────────────────────────────────────────────────────
 function AcompteModal({ moduleKey, worker, onClose }: { moduleKey: ModuleKey; worker: BizWorker; onClose: () => void }) {
   const biz = useBiz(moduleKey);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayLocal());
   const [amount, setAmount] = useState(0);
   const [description, setDescription] = useState('');
   const add = () => {
@@ -915,7 +916,7 @@ function AcompteModal({ moduleKey, worker, onClose }: { moduleKey: ModuleKey; wo
 // ─── Absence ──────────────────────────────────────────────────────────────────
 function AbsenceModal({ moduleKey, worker, onClose }: { moduleKey: ModuleKey; worker: BizWorker; onClose: () => void }) {
   const biz = useBiz(moduleKey);
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(todayLocal());
   const [cost, setCost] = useState(0);
   const [description, setDescription] = useState('');
   const add = () => {
@@ -1200,7 +1201,7 @@ function PrintPaymentsModal({ moduleKey, worker, onClose }: {
   const cfg = MODULES[moduleKey];
   const firstOfYear = `${new Date().getFullYear()}-01-01`;
   const [from, setFrom] = useState(firstOfYear);
-  const [to, setTo] = useState(new Date().toISOString().split('T')[0]);
+  const [to, setTo] = useState(todayLocal());
 
   const rows = useMemo(() => worker.payments
     .filter(p => {

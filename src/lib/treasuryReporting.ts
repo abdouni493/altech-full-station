@@ -19,7 +19,7 @@ import { BizState, ModuleKey, MODULES, netCashOfSale, bizExpensePaidInCash, isMa
 import { within } from './period';
 import { computeCarburantCash } from './carburantSales';
 import { moduleCaisseBalance, docPaymentSlices } from './bizReporting';
-import { expensePartOf, isBrigadeExpense, cashEffectOf, treasuryEffectOf, partCashEffect } from '../store/AppContext';
+import { expensePartOf, isBrigadeExpense, cashEffectOf, treasuryEffectOf, partCashEffect, financeCashBalance } from '../store/AppContext';
 
 export const CAISSE_ID = 'CAISSE';
 
@@ -230,8 +230,16 @@ export interface CaisseBreakdown {
 
 export interface TreasuryReport {
   from: string; to: string;
+  /** Solde du TIROIR COMMUN au grand livre (dépôts, retraits, virements). */
   caisseBalance: number;
   bankTotal: number;
+  /** Σ des caisses des activités (= « Solde caisse générale »). */
+  activitiesCash: number;
+  /** Caisse de la Finance (lignes du grand livre sans activité). */
+  financeCash: number;
+  /** Toutes les caisses = activités + Finance. */
+  cashTotal: number;
+  /** Trésorerie totale = toutes les caisses + banques. */
   grandTotal: number;
   /** Caisse générale à l'ouverture de la période, et ses flux sur la période. */
   caisseOpening: number;
@@ -625,6 +633,13 @@ export function computeTreasuryReport(app: any, biz: BizState, from: string, to:
   // retranchait le montant payé de CHAQUE achat, chèques et virements compris :
   // il annonçait un découvert que le tiroir n'avait jamais connu.
   const carburantBalance = computeCarburantCash(app).balance;
+  /**
+   * La caisse de la Finance : la part du tiroir commun qui n'appartient à
+   * AUCUNE activité — exactement la règle de l'écran Caisse Générale. Elle
+   * valait ici « tiroir commun + banques », si bien que Rapports Généraux et
+   * Caisse Générale annonçaient deux trésoreries différentes.
+   */
+  const financeCash = financeCashBalance(txs as any);
 
   /**
    * Les flux d'UNE activité sur la période.
@@ -657,8 +672,12 @@ export function computeTreasuryReport(app: any, biz: BizState, from: string, to:
       ? [{ key: 'magasin2' as TreasuryPartKey, label: TREASURY_PART_LABEL.magasin2, balance: partBalance('magasin2'), ...flowsOf('magasin2') }]
       : []),
     { key: 'carwash', label: TREASURY_PART_LABEL.carwash, balance: partBalance('carwash'), ...flowsOf('carwash') },
-    { key: 'systeme', label: TREASURY_PART_LABEL.systeme, balance: caisseBalance + bankTotal, ...flowsOf('systeme') },
+    { key: 'systeme', label: TREASURY_PART_LABEL.systeme, balance: financeCash, ...flowsOf('systeme') },
   ];
+  /** Les caisses des activités — le « Solde caisse générale » de l'écran Caisse Générale. */
+  const activitiesCash = partBalances.filter(p => p.key !== 'systeme').reduce((s, p) => s + p.balance, 0);
+  /** Toutes les caisses de la station, celle de la Finance comprise. */
+  const cashTotal = activitiesCash + financeCash;
 
   // ── Break-downs ───────────────────────────────────────────────────────────
   const natureMap = new Map<string, { count: number; inflow: number; outflow: number }>();
@@ -685,7 +704,12 @@ export function computeTreasuryReport(app: any, biz: BizState, from: string, to:
 
   return {
     from, to,
-    caisseBalance, bankTotal, grandTotal: caisseBalance + bankTotal,
+    caisseBalance, bankTotal,
+    activitiesCash, financeCash, cashTotal,
+    // La trésorerie totale = TOUTES les caisses + les banques, comme l'écran
+    // Caisse Générale. Le tiroir commun seul (`caisseBalance`) n'en est qu'une
+    // partie : l'argent des activités qu'il contient est déjà dans leur caisse.
+    grandTotal: cashTotal + bankTotal,
     caisseOpening, caisseIn, caisseOut, caisseDetail,
     bankOpening, bankIn, bankOut,
     accounts, partBalances, movements,

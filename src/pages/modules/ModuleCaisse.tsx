@@ -19,6 +19,7 @@ import {
   Table, Tabs, EmptyState, ViewToggle, CardGrid, GlassCard, RowActions, ActionBtn,
   money, formatDate, PeriodFilter, Period, inPeriod, periodRange,
 } from '@/src/components/biz/Kit';
+import { todayLocal } from '@/src/lib/period';
 
 export default function ModuleCaisse({ moduleKey }: { moduleKey: ModuleKey }) {
   const cfg = MODULES[moduleKey];
@@ -846,7 +847,7 @@ function TxForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; initial
   const isEdit = !!initial;
   const [type, setType] = useState<'deposit' | 'withdraw'>(initial?.type || 'deposit');
   const [amount, setAmount] = useState(initial?.amount || 0);
-  const [date, setDate] = useState(initial ? initial.date.split('T')[0] : new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(initial ? initial.date.split('T')[0] : todayLocal());
   const [category, setCategory] = useState(initial?.category || '');
   const [description, setDescription] = useState(initial?.description || '');
   const save = () => {

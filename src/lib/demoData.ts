@@ -137,9 +137,9 @@ const worker_payment_records = [
 
 // ─── Clients & fournisseurs ────────────────────────────────────────────────────
 const clients = [
-  { id: 'cli-1', name: 'Transport Hamdi SARL', phone: '036 84 12 12', cin: null, email: 'contact@hamdi-transport.dz', address: 'Zone industrielle, Sétif', contact_person: 'M. Hamdi', balance: 0, debt: 86500, credit_limit: 300000, payment_delay: 30, type: 'ENTREPRISE', payment_mode: 'CREDIT', nif: '000219012345678', nis: '0002190123', article: '19012345', rc: '19/00-0123456B12', advance_balance: 0, opening_debt: 40000, opening_advance: 0, opening_date: D(90), opening_notes: 'Reprise de dette', created_at: T(90) },
-  { id: 'cli-2', name: 'APC Sétif', phone: '036 90 00 00', cin: null, email: null, address: 'Sétif', contact_person: 'Service parc auto', balance: 0, debt: 0, credit_limit: 500000, payment_delay: 60, type: 'GOUVERNEMENT', payment_mode: 'ADVANCE', nif: null, nis: null, article: null, rc: null, advance_balance: 120000, opening_debt: 0, opening_advance: 150000, opening_date: D(60), opening_notes: null, created_at: T(60) },
-  { id: 'cli-3', name: 'Ahmed Touati', phone: '0661 23 45 67', cin: '100987654', email: null, address: 'El Eulma', contact_person: null, balance: 0, debt: 12400, credit_limit: 50000, payment_delay: 15, type: 'PARTICULIER', payment_mode: 'CREDIT', nif: null, nis: null, article: null, rc: null, advance_balance: 0, opening_debt: 0, opening_advance: 0, opening_date: null, opening_notes: null, created_at: T(45) },
+  { id: 'cli-1', name: 'Transport Hamdi SARL', phone: '036 84 12 12', cin: null, email: 'contact@hamdi-transport.dz', address: 'Zone industrielle, Sétif', contact_person: 'M. Hamdi', balance: 0, debt: 30016.9, credit_limit: 300000, payment_delay: 30, type: 'ENTREPRISE', payment_mode: 'CREDIT', nif: '000219012345678', nis: '0002190123', article: '19012345', rc: '19/00-0123456B12', advance_balance: 0, opening_debt: 40000, opening_advance: 0, opening_date: D(90), opening_notes: 'Reprise de dette', created_at: T(90) },
+  { id: 'cli-2', name: 'APC Sétif', phone: '036 90 00 00', cin: null, email: null, address: 'Sétif', contact_person: 'Service parc auto', balance: 200000, debt: 0, credit_limit: 500000, payment_delay: 60, type: 'GOUVERNEMENT', payment_mode: 'ADVANCE', nif: null, nis: null, article: null, rc: null, advance_balance: 200000, opening_debt: 0, opening_advance: 150000, opening_date: D(60), opening_notes: null, created_at: T(60) },
+  { id: 'cli-3', name: 'Ahmed Touati', phone: '0661 23 45 67', cin: '100987654', email: null, address: 'El Eulma', contact_person: null, balance: 0, debt: 21822.35, credit_limit: 50000, payment_delay: 15, type: 'PARTICULIER', payment_mode: 'CREDIT', nif: null, nis: null, article: null, rc: null, advance_balance: 0, opening_debt: 0, opening_advance: 0, opening_date: null, opening_notes: null, created_at: T(45) },
   { id: 'cli-4', name: 'Taxi Ben Ali', phone: '0772 33 44 55', cin: '100876543', email: null, address: 'Sétif', contact_person: null, balance: 0, debt: 0, credit_limit: 0, payment_delay: 0, type: 'PARTICULIER', payment_mode: 'CASH', nif: null, nis: null, article: null, rc: null, advance_balance: 0, opening_debt: 0, opening_advance: 0, opening_date: null, opening_notes: null, created_at: T(30) },
 ];
 
@@ -155,7 +155,7 @@ const client_appointments = [
 
 const suppliers = [
   { id: 'sup-1', ref: 'FRN-001', name: 'Distributeur Carburant Est', contact: 'Service commercial', phone: '036 50 50 50', email: 'commandes@dce.dz', address: 'Route nationale 5, Sétif', balance: 450000, total_purchases: 3850000, nif: '000119087654321', nis: null, article: null, rc: '19/00-0099887B05', type: 'CARBURANT', created_at: T(200) },
-  { id: 'sup-2', ref: 'FRN-002', name: 'Lubrifiants du Centre', contact: 'Mme Ouali', phone: '036 71 71 71', email: null, address: 'Bordj Bou Arreridj', balance: 38000, total_purchases: 265000, nif: null, nis: null, article: null, rc: null, type: 'PRODUITS', created_at: T(150) },
+  { id: 'sup-2', ref: 'FRN-002', name: 'Lubrifiants du Centre', contact: 'Mme Ouali', phone: '036 71 71 71', email: null, address: 'Bordj Bou Arreridj', balance: 37950, total_purchases: 264950, nif: null, nis: null, article: null, rc: null, type: 'PRODUITS', created_at: T(150) },
   { id: 'sup-3', ref: 'FRN-003', name: 'Accessoires Auto Pro', contact: 'M. Kaci', phone: '0560 99 88 77', email: null, address: 'Alger', balance: 0, total_purchases: 92000, nif: null, nis: null, article: null, rc: null, type: 'PRODUITS', created_at: T(120) },
 ];
 
@@ -215,7 +215,7 @@ const SHOP_SALES = [
 ];
 
 const purchases = [
-  { id: 'pur-1', date: D(14), supplier_id: 'sup-2', invoice_number: 'FA-2026-0412', due_date: D(-16), driver_id: null, total: 64000, amount_paid: 26000, rest: 38000, status: 'Dette partielle', payment_mode: 'ESPECES', cheque_number: null, linked_delivery_note_id: null, notes: 'Réassort lubrifiants', type: 'RECEPTION', tva_rate: 0, tva_active: false, tank_id: null, receipt_photo_url: null, bl_number: 'BL-8841', discount_type: null, discount_value: null, discount_amount: null, subtotal: 64000, tva_amount: 0, appointment_active: true, appointment_date: D(-16), appointment_amount: 38000, appointment_notes: 'Solde facture', appointment_paid: false, appointment_paid_at: null, created_at: T(14) },
+  { id: 'pur-1', date: D(14), supplier_id: 'sup-2', invoice_number: 'FA-2026-0412', due_date: D(-16), driver_id: null, total: 63950, amount_paid: 26000, rest: 37950, status: 'Dette partielle', payment_mode: 'ESPECES', cheque_number: null, linked_delivery_note_id: null, notes: 'Réassort lubrifiants', type: 'RECEPTION', tva_rate: 0, tva_active: false, tank_id: null, receipt_photo_url: null, bl_number: 'BL-8841', discount_type: null, discount_value: null, discount_amount: null, subtotal: 63950, tva_amount: 0, appointment_active: true, appointment_date: D(-16), appointment_amount: 37950, appointment_notes: 'Solde facture', appointment_paid: false, appointment_paid_at: null, created_at: T(14) },
   { id: 'pur-2', date: D(30), supplier_id: 'sup-3', invoice_number: 'FA-AP-1209', due_date: null, driver_id: null, total: 15600, amount_paid: 15600, rest: 0, status: 'Payé', payment_mode: 'ESPECES', cheque_number: null, linked_delivery_note_id: null, notes: null, type: 'RECEPTION', tva_rate: 0, tva_active: false, tank_id: null, receipt_photo_url: null, bl_number: null, discount_type: null, discount_value: null, discount_amount: null, subtotal: 15600, tva_amount: 0, appointment_active: false, appointment_date: null, appointment_amount: null, appointment_notes: null, appointment_paid: null, appointment_paid_at: null, created_at: T(30) },
 ];
 
@@ -306,7 +306,8 @@ function buildBrigades() {
       const cashPart = round2(theoretical - bons + decalage);
       pompisteData[a.pompisteId] = {
         litersSold, theoretical, collected: { cash: cashPart, bons, cheques: 0 },
-        totalCollected: round2(cashPart + bons), decalage, pricePerLiter: round2(theoretical / (litersSold || 1)),
+        // Comme l'assistant : `totalCollected` = espèces ; les bons sont des justifications.
+        totalCollected: cashPart, decalage, pricePerLiter: round2(theoretical / (litersSold || 1)),
       };
     });
 

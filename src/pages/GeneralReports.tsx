@@ -11,7 +11,7 @@ import { cn, matchesSearch } from '@/src/lib/utils';
 import { ModuleKey, MODULES, BizLineItem, isReversedSale, formatQty, activeModuleKeys, isMagasin2Enabled } from '@/src/lib/bizConfig';
 import { applyRestock, describeRestock, restockPlan } from '@/src/lib/bizRestock';
 import { useBizAll, useBiz } from '@/src/store/BizContext';
-import { useAppState, useAppDispatch, CAISSE_ID } from '@/src/store/AppContext';
+import { useAppState, useAppDispatch, CAISSE_ID, expensePartOf, isCashAccount } from '@/src/store/AppContext';
 import { removeBizExpenseLedger } from '@/src/lib/bizExpenseLedger';
 import { money, formatDate, Modal, Badge, Confirm, Table } from '@/src/components/biz/Kit';
 import { computeModuleReport, computeCarburantReport, consolidate, within, PartReport, GlobalReport } from '@/src/lib/bizReporting';
@@ -41,6 +41,7 @@ import {
 import { deleteFuelPurchase, tankDeltasOf, describeTankDeltas, litersOf } from '@/src/lib/fuelPurchase';
 import { unpaidSupplierInvoices, purchasePaid, purchaseRest } from '@/src/lib/supplierDebt';
 import { toast } from 'react-hot-toast';
+import { todayLocal } from '@/src/lib/period';
 
 type ActiveKey =
   | 'global' | 'analyses' | 'carburant' | 'employes' | 'tresorerie'
@@ -123,7 +124,7 @@ export default function GeneralReports() {
 
   const firstDay = new Date(); firstDay.setDate(1);
   const [from, setFrom] = useState(firstDay.toISOString().split('T')[0]);
-  const [to, setTo] = useState(new Date().toISOString().split('T')[0]);
+  const [to, setTo] = useState(todayLocal());
   const [range, setRange] = useState({ from, to });
   const [active, setActive] = useState<ActiveKey>('global');
   const [showPurchases, setShowPurchases] = useState(false);
@@ -151,8 +152,9 @@ export default function GeneralReports() {
   }), [biz, app, range]);
 
   const global: GlobalReport = useMemo(
-    () => consolidate([reports.carburant, ...bizReportKeys().map(k => reports[k])], range.from, range.to),
-    [reports, range],
+    () => consolidate([reports.carburant, ...bizReportKeys().map(k => reports[k])], range.from, range.to,
+      (app.expenses || []).filter((e: any) => expensePartOf(e) === 'systeme' && within(e.date, range.from, range.to))),
+    [reports, range, app.expenses],
   );
 
   // Ces annotations ne sont pas décoratives : `@types/react` n'est pas installé,
@@ -385,6 +387,12 @@ export default function GeneralReports() {
         confirmMessage: `Supprimer la dépense « ${e.label} » (${money(e.amount)}) ?`,
       });
     });
+    (global.financeExpenses || []).forEach((e: any) => expenseRows.push({
+      id: `fin-${e.id}`, date: e.date, label: `🏦 ${e.category || 'Dépense'} (Finance)`, sub: e.description, amount: Number(e.amount) || 0, amountTone: 'red',
+      badge: e.accountId && !isCashAccount(e.accountId) ? { text: 'Banque', tone: 'info' } : { text: 'Espèces', tone: 'neutral' },
+      onDelete: () => deleteAppExpense(e.id),
+      confirmMessage: `Supprimer la dépense « ${e.category} » (${money(Number(e.amount) || 0)}) ?`,
+    }));
     reports.carburant.expenses.filter(e => e.kind !== 'Dépense').forEach(e => expenseRows.push({
       id: `carb-${e.kind}-${e.id}`, date: e.date, label: `⛽ ${e.kind} — ${e.label}`, sub: e.description,
       amount: e.amount, amountTone: 'amber', badge: { text: e.kind, tone: 'info' },
@@ -1334,6 +1342,18 @@ function GlobalOverview({ global: g, workforce: wf, treasury: tr, workingCapital
                     <td className="table-cell text-right"><ChevronRight className="w-4 h-4 text-slate-300 inline" /></td>
                   </tr>
                 ))}
+                {(g.financeExpensesTotal || 0) > 0 && (
+                  <tr>
+                    <td className="table-cell font-bold whitespace-nowrap">🏦 Finance (charges de la station)</td>
+                    <td className="table-cell tabular-nums text-right">—</td><td className="table-cell tabular-nums text-right">—</td>
+                    <td className="table-cell tabular-nums text-right">—</td>
+                    <td className="table-cell tabular-nums text-right text-red-600">{money(g.financeExpensesTotal)}</td>
+                    <td className="table-cell tabular-nums text-right">—</td><td className="table-cell tabular-nums text-right">—</td>
+                    <td className="table-cell tabular-nums text-right">—</td>
+                    <td className="table-cell tabular-nums text-right font-black text-red-600">{money(-g.financeExpensesTotal)}</td>
+                    <td className="table-cell" />
+                  </tr>
+                )}
                 <tr className="bg-blue-50/60">
                   <td className="table-cell font-black text-[#002d87]">TOTAL</td>
                   <td className="table-cell tabular-nums text-right font-black text-emerald-600">{money(g.salesTotal)}</td>

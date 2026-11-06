@@ -34,6 +34,7 @@
  */
 import { expensePartOf, isBrigadeExpense, isCashAccount, nozzleTankId, partCashLedgerLines } from '../store/AppContext';
 import { within } from './period';
+import { pompisteCashOf } from './brigadeCalc';
 
 const num = (v: any): number => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
@@ -284,10 +285,13 @@ export function computeCarburantSales(app: any, from: string, to: string): Carbu
       // Le manquant enregistré fait foi ; sinon on le recalcule.
       const rest = acc ? num(acc.rest) : revenue + productSales - cash - tpe - credit - expense - productPurchases;
 
-      const summaries: Record<string, any> = acc?.pompisteSummary || b.pompisteData || {};
+      // Un récapitulatif VIDE (anciennes comptabilités) ne doit pas masquer les
+      // pompistes : on retombe alors sur les données de la brigade.
+      const summaries: Record<string, any> = (acc?.pompisteSummary && Object.keys(acc.pompisteSummary).length)
+        ? acc.pompisteSummary : (b.pompisteData || {});
       const pompisteLines: FuelPompisteLine[] = Object.entries(summaries).map(([id, d]: [string, any]) => {
-        const pCash = num(d?.cashReceived ?? d?.totalCollected ?? d?.collected?.cash);
-        const pJust = num(d?.justifTotal);
+        const pJust = num(d?.justifTotal ?? justifs.filter(j => j.pompisteId === id).reduce((t, j) => t + num(j.amount), 0));
+        const pCash = pompisteCashOf(d, pJust);
         return {
           id,
           name: pompistes.find(p => p.id === id)?.name || 'Pompiste',

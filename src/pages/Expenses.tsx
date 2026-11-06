@@ -53,13 +53,14 @@ import { cn, newId, matchesSearch } from "@/src/lib/utils";
 import {
   useAppState, useAppDispatch, useModulePermission,
   TreasuryTransaction, TreasuryPart, CAISSE_ID, CASH_ACCOUNT_LABEL,
-  bankBalanceOf, caisseBalanceOf, cashAccountOfPart, expensePartOf, isCashAccount,
+  bankBalanceOf, caisseBalanceOf, financeCashBalance, cashAccountOfPart, expensePartOf, isCashAccount,
 } from "@/src/store/AppContext";
 import { useBizAll } from "@/src/store/BizContext";
 import { carburantCashBalance } from "@/src/lib/carburantSales";
 import { moduleCaisseBalance } from "@/src/lib/bizReporting";
 import { MODULES, isMagasin2Enabled } from "@/src/lib/bizConfig";
 import { toast } from "react-hot-toast";
+import { todayLocal } from '@/src/lib/period';
 
 /** Instrument used to pay — independent of the account the money leaves. */
 const PAYMENT_MODES = ["Espèces", "Virement", "Chèque", "TPE", "Prélèvement"] as const;
@@ -118,7 +119,7 @@ const Expenses = () => {
       lavage: ofModule('lavage'),
       magasin2: ofModule('magasin2'),
       carwash: ofModule('carwash'),
-      systeme: caisseBalanceOf(treasuryTransactions),
+      systeme: financeCashBalance(treasuryTransactions),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, biz, treasuryTransactions, expenses]);
@@ -176,7 +177,7 @@ const Expenses = () => {
   const emptyForm = () => ({
     description: "",
     category: "",
-    date: new Date().toISOString().split('T')[0],
+    date: todayLocal(),
     amount: 0,
     mode: "Espèces",
     paymentMode: "Espèces",

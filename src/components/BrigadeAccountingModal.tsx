@@ -316,7 +316,11 @@ const BrigadeAccountingModal: React.FC<Props> = ({
    * rendent aussi l'argent. Ils s'ajoutent au dû — sans quoi une simple
    * réouverture de cette fenêtre transformait leur montant en faux excédent.
    */
-  const armoireSalesTotal = (brigade.armoireSales || []).reduce((s, x) => s + (Number(x.total) || 0), 0);
+  // Les ventes faites DIRECTEMENT sur le stock d'un magasin pendant la brigade
+  // sont dues au même titre : les oublier créait un faux manquant à chaque
+  // réenregistrement d'une brigade qui en contenait.
+  const armoireSalesTotal = (brigade.armoireSales || []).reduce((s, x) => s + (Number(x.total) || 0), 0)
+    + (brigade.magasinProductMoves || []).filter(m => m.kind === 'VENTE').reduce((s, m) => s + (Number(m.total) || 0), 0);
   const totalDue = totalRevenue + armoireSalesTotal;
   const justifiedTotal = justifications.reduce((s, j) => s + j.amount, 0);
   const reste = totalDue - cashReceived - justifiedTotal;
@@ -430,6 +434,60 @@ const BrigadeAccountingModal: React.FC<Props> = ({
       return;
     }
 
+    // ── Chaque pièce appartient à un pompiste ───────────────────────────────
+    // Une justification sans pompiste n'entrait dans le compte de PERSONNE : le
+    // décalage par pompiste ne s'additionnait plus au reste de la brigade. On la
+    // rattache au premier pompiste — la règle de l'assistant à la réouverture.
+    const realGroups = pompisteGroups.filter(g => !g.unassigned);
+    const defaultPid = realGroups[0]?.pompisteId || (brigade.pompisteIds || [])[0];
+    justObjs.forEach(j => { if (!j.pompisteId && defaultPid) j.pompisteId = defaultPid; });
+
+    // ── Récapitulatif par pompiste, recalculé ─────────────────────────────────
+    // Sans lui, la brigade gardait les espèces et le décalage de la clôture
+    // pendant que la comptabilité en annonçait d'autres : rapports Carburant,
+    // Employés et « Ma brigade » lisaient l'ancien chiffre.
+    const prevData: Record<string, any> = brigade.pompisteData || {};
+    const prevCashOf = (id: string) => {
+      const d = prevData[id];
+      return Number(d?.collected?.cash ?? d?.totalCollected ?? 0) || 0;
+    };
+    const productsOf = (id: string) =>
+      (brigade.armoireSales || []).filter(x => x.pompisteId === id).reduce((a, x) => a + (Number(x.total) || 0), 0)
+      + (brigade.magasinProductMoves || []).filter(m => m.kind === 'VENTE' && m.pompisteId === id).reduce((a, m) => a + (Number(m.total) || 0), 0);
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const fuelRecomputed = realGroups.reduce((a, g) => a + g.totalAmount, 0);
+    // Le théorique de chaque pompiste suit les index CORRIGÉS ici (prorata).
+    const fuelScale = fuelRecomputed > 0 ? totalRevenue / fuelRecomputed : 1;
+    const prevTotalCash = realGroups.reduce((a, g) => a + prevCashOf(g.pompisteId), 0);
+    const theoTotalAll = realGroups.reduce((a, g) => a + g.totalAmount * fuelScale + productsOf(g.pompisteId), 0);
+    const newPompisteData: Record<string, any> = { ...prevData };
+    const pompisteSummary: Record<string, any> = {};
+    let cashLeft = r2(cashReceived);
+    realGroups.forEach((g, i) => {
+      const theo = r2(g.totalAmount * fuelScale + productsOf(g.pompisteId));
+      // Les espèces de la brigade sont réparties comme à la clôture ; un montant
+      // corrigé ici l'est au prorata (du théorique quand rien n'était saisi).
+      const weight = prevTotalCash > 0 ? prevCashOf(g.pompisteId) / prevTotalCash
+        : theoTotalAll > 0 ? theo / theoTotalAll : 1 / realGroups.length;
+      const cash = i === realGroups.length - 1 ? cashLeft : r2(cashReceived * weight);
+      cashLeft = r2(cashLeft - cash);
+      const justif = r2(justObjs.filter(j => j.pompisteId === g.pompisteId).reduce((a, j) => a + (Number(j.amount) || 0), 0));
+      const ecart = r2(theo - cash - justif);
+      newPompisteData[g.pompisteId] = {
+        ...(prevData[g.pompisteId] || {}),
+        litersSold: g.totalLiters,
+        theoretical: theo,
+        collected: { cash, bons: 0, cheques: 0 },
+        totalCollected: cash,
+        decalage: -ecart,
+        pricePerLiter: g.totalLiters ? (g.totalAmount * fuelScale) / g.totalLiters : 0,
+      };
+      pompisteSummary[g.pompisteId] = {
+        theoretical: theo, productSales: productsOf(g.pompisteId), cashReceived: cash,
+        justifTotal: justif, ecart, litersSold: g.totalLiters, pompisteName: g.name,
+      };
+    });
+
     const accounting: BrigadeAccounting = {
       id: existingAccounting?.id || newId(),
       brigadeId: brigade.id,
@@ -446,6 +504,7 @@ const BrigadeAccountingModal: React.FC<Props> = ({
       restAssignedAmount: Math.abs(reste),
       status: 'completed',
       createdBy: currentUserName,
+      pompisteSummary,
       justifications: justObjs.map(j => ({ ...j, accountingId: existingAccounting?.id || '' })),
     };
 
@@ -595,12 +654,16 @@ const BrigadeAccountingModal: React.FC<Props> = ({
         type: 'UPDATE_BRIGADE',
         payload: {
           ...brigade,
+          pompisteData: newPompisteData,
           ...(hadNozzleCorrection ? { endNozzleIndices: newEndNozzleIndices } : {}),
           endTankLevels: { ...(brigade.endTankLevels || {}), ...correctedLevels },
         },
       });
-    } else if (hadNozzleCorrection) {
-      dispatch({ type: 'UPDATE_BRIGADE', payload: { ...brigade, endNozzleIndices: newEndNozzleIndices } });
+    } else {
+      dispatch({ type: 'UPDATE_BRIGADE', payload: {
+        ...brigade, pompisteData: newPompisteData,
+        ...(hadNozzleCorrection ? { endNozzleIndices: newEndNozzleIndices } : {}),
+      } });
     }
     if (cuveDeltas.length) dispatch({ type: 'ADJUST_TANK_LEVELS', payload: cuveDeltas });
 
@@ -655,12 +718,13 @@ const BrigadeAccountingModal: React.FC<Props> = ({
       if (restAssignedWorkerType === 'chef_brigade') {
         const targetChef = brigadeChefs.find(c => c.id === restAssignedWorkerId);
         if (targetChef) {
-          dispatch({ type: 'UPDATE_BRIGADE_CHEF', payload: { ...targetChef, decalageHistory: [...(targetChef.decalageHistory || []), entry] } });
+          dispatch({ type: 'UPDATE_BRIGADE_CHEF', payload: { ...targetChef, decalageHistory: [...(targetChef.decalageHistory || []).filter((h: any) => h.brigadeId !== brigade.id), entry] } });
         }
       } else {
         const pompiste = pompistes.find(p => p.id === restAssignedWorkerId);
         if (pompiste) {
-          dispatch({ type: 'UPDATE_POMPISTE', payload: { ...pompiste, decalageHistory: [...(pompiste.decalageHistory || []), entry] } });
+          // Une entrée par brigade : réenregistrer ne la duplique plus.
+          dispatch({ type: 'UPDATE_POMPISTE', payload: { ...pompiste, decalageHistory: [...(pompiste.decalageHistory || []).filter((h: any) => h.brigadeId !== brigade.id), entry] } });
         }
       }
     }

@@ -9,13 +9,16 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/src/lib/utils";
-import { useAppState, useAppDispatch, useModulePermission, isBrigadeExpense } from "../store/AppContext";
+import { useAppState, useAppDispatch, useModulePermission, isBrigadeExpense, expensePartOf } from "../store/AppContext";
 import BrigadeArmoireMovements, { hasArmoireMoves } from "../components/armoires/BrigadeArmoireMovements";
 import { computeCarburantSales, derivedPumpStats, derivedTankSales } from "../lib/carburantSales";
+import { isFuelPurchase } from "../lib/supplierDebt";
+import { within } from "../lib/period";
 import { exportElementToPdf, printDocumentMode } from "../lib/pdf";
 import { brigadeNozzleRows, brigadePompisteGroups, justifiedByPompiste } from "../lib/brigadeCalc";
 import { clientLedgers } from "../lib/clientLedger";
 import Skeleton from "../components/Skeleton";
+import { todayLocal } from '@/src/lib/period';
 
 /* ─── Brand palette (mirrors the Sidebar) ─── */
 const C = {
@@ -90,8 +93,8 @@ const DailyReport = () => {
   const ficheRef = useRef<HTMLDivElement>(null);
   const [isGenerated, setIsGenerated] = useState(false);
   const [isLoading, setIsLoading]     = useState(false);
-  const [startDate, setStartDate]     = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate]         = useState(new Date().toISOString().split("T")[0]);
+  const [startDate, setStartDate]     = useState(todayLocal());
+  const [endDate, setEndDate]         = useState(todayLocal());
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
 
@@ -108,10 +111,8 @@ const DailyReport = () => {
   const reportData = useMemo(() => {
     if (!isGenerated) return null;
 
-    const start = new Date(startDate);
-    const end   = new Date(endDate);
-    end.setHours(23, 59, 59);
-    const inRange = (d: string) => { const dt = new Date(d); return dt >= start && dt <= end; };
+    // Une seule règle de période pour toute l'application (jour LOCAL).
+    const inRange = (d: string) => within(d, startDate, endDate);
 
     // ── Le carburant vendu vient des BRIGADES ────────────────────────────────
     // Ce bloc lisait `fuel_sales`, une table que plus aucun écran n'alimente :
@@ -123,7 +124,9 @@ const DailyReport = () => {
     const perPump     = derivedPumpStats(app, startDate, endDate);
     const perTank     = derivedTankSales(app, startDate, endDate);
     const selShop     = shopSales.filter(s => inRange(s.date));
-    const selExp      = expenses.filter(e => inRange(e.date));
+    // La fiche est celle du CARBURANT : seules ses dépenses y pèsent, comme dans
+    // le rapport Carburant (une dépense de la Cafétéria est dans SON rapport).
+    const selExp      = expenses.filter(e => inRange(e.date) && expensePartOf(e) === 'carburant');
     // Brigades are selected by their END date: a brigade belongs to the fiche
     // only if it finishes inside the period (e.g. a brigade created on 02-07
     // that ends on 03-07 is excluded from the 02-07 → 02-07 fiche).
@@ -135,10 +138,13 @@ const DailyReport = () => {
     });
     const selDel      = deliveryNotes.filter(d => inRange(d.date));
     const selPurch    = purchases.filter(p => inRange(p.date));
+    // Les achats carburant (écran Achats Carburant) : une ligne par cuve.
+    const selFuelPurch = selPurch.filter(isFuelPurchase);
 
     /* 1. TANKS */
     const tankSummary = tanks.map(tank => {
-      const received  = selDel.filter(d => d.tankId === tank.id).reduce((a, c) => a + c.liters, 0);
+      const received  = selDel.filter(d => d.tankId === tank.id).reduce((a, c) => a + c.liters, 0)
+        + selFuelPurch.reduce((a, p) => a + (p.items || []).filter(i => i.tankId === tank.id).reduce((x, i) => x + (Number(i.quantity) || 0), 0), 0);
       // Les litres sortis de CETTE cuve, d'après les pistolets qui y sont
       // raccordés — et non d'après `pump.tankId`, qui n'est qu'un miroir du
       // premier pistolet de la pompe.
@@ -253,7 +259,8 @@ const DailyReport = () => {
     // remises, TPE encaissé en banque, bons clients passés en créance.
     const payments = {
       especes: carburant.cash
-        + selShop.filter(s => s.paymentMode === "ESPECES").reduce((a, c) => a + c.total, 0),
+        // Seule la part PAYÉE d'une facture est entrée en caisse.
+        + selShop.filter(s => s.paymentMode === "ESPECES").reduce((a, c) => a + (c.amountPaid ?? c.total), 0),
       bons:     carburant.credit,
       cheques:  0,
       credit:   carburant.credit,
@@ -266,8 +273,9 @@ const DailyReport = () => {
 
     /* 5. SHOP */
     const shopRevenue  = selShop.reduce((a, c) => a + c.total, 0);
-    const shopEspeces  = selShop.filter(s => s.paymentMode === "ESPECES").reduce((a, c) => a + c.total, 0);
-    const shopDette    = selShop.filter(s => s.status === "Dette").reduce((a, c) => a + c.total, 0);
+    const shopEspeces  = selShop.filter(s => s.paymentMode === "ESPECES").reduce((a, c) => a + (c.amountPaid ?? c.total), 0);
+    // La dette d'une facture, c'est son RESTE — pas son total.
+    const shopDette    = selShop.reduce((a, c) => a + Math.max(0, c.rest ?? (c.status === "Dette" ? c.total : 0)), 0);
     const topShopProds = (() => {
       const counts: Record<string, { qty: number; rev: number }> = {};
       selShop.forEach(s => s.items.forEach(i => {
@@ -280,8 +288,10 @@ const DailyReport = () => {
     })();
 
     /* 6. PURCHASES */
-    const fuelPurchasesTotal = selDel.reduce((a, c) => a + c.total, 0);
-    const shopPurchasesTotal = selPurch.filter(p => p.type === "RECEPTION").reduce((a, c) => a + c.total, 0);
+    // Achats carburant = Achats Carburant + anciens bons de livraison ; un achat
+    // carburant n'est JAMAIS compté une seconde fois comme achat boutique.
+    const fuelPurchasesTotal = selDel.reduce((a, c) => a + c.total, 0) + selFuelPurch.reduce((a, c) => a + c.total, 0);
+    const shopPurchasesTotal = selPurch.filter(p => p.type === "RECEPTION" && !isFuelPurchase(p)).reduce((a, c) => a + c.total, 0);
     const totalExpenses      = selExp.reduce((a, c) => a + c.amount, 0);
     const expByCategory: Record<string, number> = {};
     selExp.forEach(e => { expByCategory[e.category] = (expByCategory[e.category] ?? 0) + e.amount; });
@@ -372,8 +382,7 @@ const DailyReport = () => {
     (brigadeAccountings || []).forEach(acc => {
       const bd = brigadeDateById[acc.brigadeId];
       if (!bd) return;
-      const dt = new Date(bd); dt.setHours(0, 0, 0, 0);
-      if (dt > end) return;
+      if (String(bd).slice(0, 10) > endDate) return;
       (acc.justifications || []).forEach((j: any) => { if (j.justificationType === 'TPE') tpeCaisseToEnd += j.amount || 0; });
     });
 

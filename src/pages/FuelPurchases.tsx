@@ -42,8 +42,10 @@ import {
 import TaxesEditor from '../components/TaxesEditor';
 import { AppliedTax, computeTaxes, sumTaxes, taxLabel } from '../lib/taxes';
 import { supplierBalance, supplierStats, purchaseRest } from '../lib/supplierDebt';
+import { carburantCashBalance } from '../lib/carburantSales';
+import { todayLocal } from '@/src/lib/period';
 
-const todayISO = () => new Date().toISOString().split('T')[0];
+const todayISO = () => todayLocal();
 
 /** One cuve line of the purchase form. */
 interface CuveLine { id: string; tankId: string; quantity: string; unitPrice: string }
@@ -361,7 +363,7 @@ export default function FuelPurchases() {
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function accountLabel(accountId: string | undefined, accounts: { id: string; name: string }[]): string {
-  if (!accountId || accountId === CAISSE_ID) return 'Espèces (caisse générale)';
+  if (!accountId || accountId === CAISSE_ID) return 'Espèces — Caisse Carburant';
   return accounts.find(a => a.id === accountId)?.name || 'Compte bancaire';
 }
 
@@ -529,8 +531,10 @@ function PurchaseForm({ initial, onClose }: { initial: Purchase | null; onClose:
     return prev.map(p => p.id === id ? { ...p, amount: String(Math.max(0, total - others)) } : p);
   });
 
+  // Un règlement en espèces d'un achat carburant sort de la CAISSE CARBURANT
+  // (lib/carburantSales) : c'est son solde qu'on montre, pas le tiroir commun.
   const accountBalance = (accountId: string) => accountId === CAISSE_ID
-    ? caisseBalanceOf(treasuryTransactions)
+    ? carburantCashBalance(state)
     : bankBalanceOf(
       bankAccounts.find(a => a.id === accountId) || { id: accountId, initialBalance: 0 },
       treasuryTransactions);
@@ -959,7 +963,7 @@ function PurchaseForm({ initial, onClose }: { initial: Purchase | null; onClose:
                     <div className="p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
                       <Field label="Compte débité">
                         <Select value={p.accountId} onChange={e => setPay(p.id, { accountId: e.target.value })}>
-                          <option value={CAISSE_ID}>Espèces (caisse générale)</option>
+                          <option value={CAISSE_ID}>Espèces — Caisse Carburant</option>
                           {bankAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                         </Select>
                       </Field>
@@ -1230,7 +1234,7 @@ function PayPurchaseDebtModal({ purchase, onClose }: { purchase: Purchase; onClo
   const rmLine = (id: string) => setLines(prev => prev.filter(l => l.id !== id));
 
   const balanceOf = (accountId: string) => accountId === CAISSE_ID
-    ? caisseBalanceOf(treasuryTransactions)
+    ? carburantCashBalance(state)
     : bankBalanceOf(bankAccounts.find(a => a.id === accountId) || { id: accountId, initialBalance: 0 }, treasuryTransactions);
 
   const value = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
@@ -1363,7 +1367,7 @@ function PayPurchaseDebtModal({ purchase, onClose }: { purchase: Purchase; onClo
                 <div className="p-3 sm:p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
                   <Field label="Payer depuis">
                     <Select value={l.accountId} onChange={e => setLine(l.id, { accountId: e.target.value })}>
-                      <option value={CAISSE_ID}>Espèces (caisse générale)</option>
+                      <option value={CAISSE_ID}>Espèces — Caisse Carburant</option>
                       {bankAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </Select>
                   </Field>

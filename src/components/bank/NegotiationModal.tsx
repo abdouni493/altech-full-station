@@ -19,8 +19,9 @@ import { formatCard } from '../../lib/justifOps';
 import {
   Negotiation, NegotiableItem, negotiableItems, negotiatedKeys, saveNegotiation, deleteNegotiation,
 } from '../../lib/negotiations';
+import { todayLocal } from '@/src/lib/period';
 
-const todayISO = () => new Date().toISOString().split('T')[0];
+const todayISO = () => todayLocal();
 
 export default function NegotiationModal({
   account, negotiations, onChanged, onClose, initialTab = 'pending',

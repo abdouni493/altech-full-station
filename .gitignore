@@ -12,3 +12,6 @@ backups/
 
 # Réglages personnels de Claude Code
 .claude/settings.local.json
+# Environnement de test (instantanés générés)
+tests/audit/*.json
+tests/audit/*.png

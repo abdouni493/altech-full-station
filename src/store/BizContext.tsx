@@ -369,6 +369,8 @@ const Ctx = createContext<BizContextValue | null>(null);
 
 export function BizProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, loadInitial);
+  // Instantané en lecture seule pour l'environnement de test (tests/audit).
+  useEffect(() => { try { (globalThis as any).__ALTECH_BIZ_STATE__ = state; } catch { /* ignore */ } }, [state]);
   const [sync, setSync] = useState<BizSyncState>({
     saving: false, pending: false, error: null, lastSavedAt: null,
   });

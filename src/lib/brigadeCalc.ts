@@ -302,6 +302,27 @@ const groupPumps = (rows: BrigadeNozzleRow[], pumps: Pump[]): BrigadePumpGroup[]
  * ils forment un lot « Non attribué », sans quoi leurs litres disparaîtraient du
  * récapitulatif financier sans que rien ne le signale.
  */
+/**
+ * Les ESPÈCES qu'un pompiste a remises, lues sur son récapitulatif de brigade.
+ *
+ * `totalCollected` additionne espèces + bons + chèques. Quand les bons sont
+ * AUSSI enregistrés comme justifications (cas de l'assistant et de la
+ * comptabilité), les reprendre ici les comptait DEUX fois : le pompiste
+ * paraissait en excédent du montant de ses bons clients. On ne garde donc que
+ * les espèces dès qu'une justification existe ; les anciennes clôtures, sans
+ * justification, gardent leurs bons et chèques comme encaissés.
+ */
+export function pompisteCashOf(stored: any, justified: number): number {
+  if (!stored) return 0;
+  const c = stored.collected;
+  if (c && typeof c === 'object' && c.cash !== undefined && c.cash !== null) {
+    const extras = toNum(c.bons) + toNum(c.cheques);
+    return toNum(c.cash) + (justified > 0.005 ? 0 : extras);
+  }
+  if (stored.cashReceived !== undefined) return toNum(stored.cashReceived);
+  return toNum(stored.totalCollected);
+}
+
 export function brigadePompisteGroups(
   brigade: Brigade,
   ctx: BrigadeCalcContext,
@@ -360,8 +381,8 @@ export function brigadePompisteGroups(
     // déduits à la clôture. Sans lui, on retombe sur le montant recalculé.
     const hasStored = stored?.theoretical !== undefined && stored?.theoretical !== null;
     const theoretical = hasStored ? toNum(stored!.theoretical) : totalAmount;
-    const collected = toNum(stored?.totalCollected);
     const justified = toNum(justifiedByPompiste[pompisteId]);
+    const collected = pompisteCashOf(stored, justified);
     return {
       pompisteId,
       pompiste,

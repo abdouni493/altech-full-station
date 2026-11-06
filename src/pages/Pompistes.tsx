@@ -20,6 +20,7 @@ import WorkerPaymentModal, { WorkerPaymentResult } from "../components/WorkerPay
 import WorkerDetailsModal from "../components/WorkerDetailsModal";
 import { WEEKDAYS, DEFAULT_WORK_DAYS, PayDecalage } from "../lib/workerPay";
 import { ViewToggle, Table, Badge, RowActions, ActionBtn } from "@/src/components/biz/Kit";
+import { todayLocal } from '@/src/lib/period';
 
 // Username must be 3-32 chars: lowercase letters, digits, dot, underscore, hyphen
 const USERNAME_REGEX = /^[a-z0-9._-]{3,32}$/;
@@ -76,7 +77,7 @@ const Pompistes = () => {
     workDays: DEFAULT_WORK_DAYS,
     cnasDate: "",
     status: "Actif",
-    hireDate: new Date().toISOString().split('T')[0]
+    hireDate: todayLocal()
   });
   const toggleWorkDay = (idx: number) => setForm(f => {
     const cur = f.workDays && f.workDays.length ? f.workDays : DEFAULT_WORK_DAYS;
@@ -84,8 +85,8 @@ const Pompistes = () => {
   });
 
   // Modal form states
-  const [advanceForm, setAdvanceForm] = useState({ amount: 0, date: new Date().toISOString().split('T')[0], description: "" });
-  const [absenceForm, setAbsenceForm] = useState({ cost: 0, date: new Date().toISOString().split('T')[0], description: "" });
+  const [advanceForm, setAdvanceForm] = useState({ amount: 0, date: todayLocal(), description: "" });
+  const [absenceForm, setAbsenceForm] = useState({ cost: 0, date: todayLocal(), description: "" });
   const [paymentForm, setPaymentForm] = useState({ month: "", mode: 'Espèces', chequeNumber: "", notes: "" });
   const [historyTab, setHistoryTab] = useState<'acomptes' | 'absences' | 'paiements' | 'decalages'>('acomptes');
   const [permissionsTab, setPermissionsTab] = useState<Record<string, Record<string, boolean>>>({});
@@ -332,7 +333,7 @@ const Pompistes = () => {
     dispatch({ type: 'UPDATE_WORKER_ACOMPTE', payload: { workerType: 'pompiste', workerId: selectedPompiste.id, acompte } });
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: "Acompte enregistré" } });
     setShowAdvanceModal(false);
-    setAdvanceForm({ amount: 0, date: new Date().toISOString().split('T')[0], description: "" });
+    setAdvanceForm({ amount: 0, date: todayLocal(), description: "" });
   };
 
   const handleAddAbsence = () => {
@@ -343,7 +344,7 @@ const Pompistes = () => {
     dispatch({ type: 'UPDATE_WORKER_ABSENCE', payload: { workerType: 'pompiste', workerId: selectedPompiste.id, absence } });
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: "Absence enregistrée" } });
     setShowAbsenceModal(false);
-    setAbsenceForm({ cost: 0, date: new Date().toISOString().split('T')[0], description: "" });
+    setAbsenceForm({ cost: 0, date: todayLocal(), description: "" });
   };
 
   const handleSavePayment = (res: WorkerPaymentResult) => {
@@ -399,7 +400,7 @@ const Pompistes = () => {
   };
 
   const resetForm = () => {
-    setForm({ name: "", cin: "", phone: "", email: "", address: "", trackId: undefined, chefId: undefined, baseSalary: 3500, salaryType: 'mois', workDays: DEFAULT_WORK_DAYS, cnasDate: "", status: "Actif", hireDate: new Date().toISOString().split('T')[0] });
+    setForm({ name: "", cin: "", phone: "", email: "", address: "", trackId: undefined, chefId: undefined, baseSalary: 3500, salaryType: 'mois', workDays: DEFAULT_WORK_DAYS, cnasDate: "", status: "Actif", hireDate: todayLocal() });
     setSelectedPompiste(null);
   };
 

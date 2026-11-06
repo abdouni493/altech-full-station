@@ -23,6 +23,7 @@ import WorkerPaymentModal, { WorkerPaymentResult } from "../components/WorkerPay
 import WorkerDetailsModal from "../components/WorkerDetailsModal";
 import { WEEKDAYS, DEFAULT_WORK_DAYS } from "../lib/workerPay";
 import { ViewToggle, Table, Badge, RowActions, ActionBtn } from "@/src/components/biz/Kit";
+import { todayLocal } from '@/src/lib/period';
 
 // For now, we'll reuse Pompiste interface as Gerant type
 type Gerant = GerantWorker;
@@ -77,7 +78,7 @@ const Gerants = () => {
     workDays: DEFAULT_WORK_DAYS,
     cnasDate: "",
     status: "Actif",
-    hireDate: new Date().toISOString().split('T')[0]
+    hireDate: todayLocal()
   });
   const toggleWorkDay = (idx: number) => setForm(f => {
     const cur = f.workDays && f.workDays.length ? f.workDays : DEFAULT_WORK_DAYS;
@@ -88,8 +89,8 @@ const Gerants = () => {
   const detailGerant = selectedGerant ? (gerants.find(g => g.id === selectedGerant.id) || selectedGerant) : null;
 
   // Modal form states
-  const [advanceForm, setAdvanceForm] = useState({ amount: 0, date: new Date().toISOString().split('T')[0], description: "" });
-  const [absenceForm, setAbsenceForm] = useState({ cost: 0, date: new Date().toISOString().split('T')[0], description: "" });
+  const [advanceForm, setAdvanceForm] = useState({ amount: 0, date: todayLocal(), description: "" });
+  const [absenceForm, setAbsenceForm] = useState({ cost: 0, date: todayLocal(), description: "" });
   const [paymentForm, setPaymentForm] = useState({ month: "", mode: 'Espèces', chequeNumber: "", notes: "" });
   const [historyTab, setHistoryTab] = useState<'acomptes' | 'absences' | 'paiements'>('acomptes');
   const [permissionsTab, setPermissionsTab] = useState<Record<string, Record<string, boolean>>>({});
@@ -309,7 +310,7 @@ const Gerants = () => {
     dispatch({ type: 'UPDATE_WORKER_ACOMPTE', payload: { workerType: 'gerant', workerId: selectedGerant.id, acompte } });
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: "Acompte enregistré" } });
     setShowAdvanceModal(false);
-    setAdvanceForm({ amount: 0, date: new Date().toISOString().split('T')[0], description: "" });
+    setAdvanceForm({ amount: 0, date: todayLocal(), description: "" });
   };
 
   const handleAddAbsence = () => {
@@ -320,7 +321,7 @@ const Gerants = () => {
     dispatch({ type: 'UPDATE_WORKER_ABSENCE', payload: { workerType: 'gerant', workerId: selectedGerant.id, absence } });
     dispatch({ type: 'ADD_TOAST', payload: { type: 'success', message: "Absence enregistrée" } });
     setShowAbsenceModal(false);
-    setAbsenceForm({ cost: 0, date: new Date().toISOString().split('T')[0], description: "" });
+    setAbsenceForm({ cost: 0, date: todayLocal(), description: "" });
   };
 
   const handleSavePayment = (res: WorkerPaymentResult) => {
@@ -375,7 +376,7 @@ const Gerants = () => {
   };
 
   const resetForm = () => {
-    setForm({ name: "", cin: "", phone: "", email: "", address: "", baseSalary: 5000, salaryType: 'mois', workDays: DEFAULT_WORK_DAYS, cnasDate: "", status: "Actif", hireDate: new Date().toISOString().split('T')[0] });
+    setForm({ name: "", cin: "", phone: "", email: "", address: "", baseSalary: 5000, salaryType: 'mois', workDays: DEFAULT_WORK_DAYS, cnasDate: "", status: "Actif", hireDate: todayLocal() });
     setSelectedGerant(null);
   };
 
