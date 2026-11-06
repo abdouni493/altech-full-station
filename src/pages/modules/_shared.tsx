@@ -1062,7 +1062,7 @@ export function CarsEditor({ cars, onChange, defaults }: {
                       onChange={e => patchDays(c.id!, 'rappelLavageDays', e.target.value)} />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Vidange (jours)</label>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Réparation (jours)</label>
                     <Input type="number" inputMode="numeric" min={0} className="text-right"
                       placeholder={`Défaut : ${cfg.reparationDays} j`}
                       value={c.rappelReparationDays ?? ''}
@@ -1117,7 +1117,7 @@ export function ContactModal({
   const isEdit = !!initial?.id;
   /**
    * Le parc n'a de sens que pour un CLIENT d'une partie de service (Lavage &
-   * Vidange) : une cafétéria n'a que faire des voitures de ses clients, et un
+   * Réparation) : une cafétéria n'a que faire des voitures de ses clients, et un
    * fournisseur encore moins. Ce même composant sert partout, donc c'est ici —
    * et une seule fois — que la question se tranche.
    */
@@ -1597,12 +1597,18 @@ export interface PrintPurchaseInvoiceOptions {
   subtotal?: number;
   reduction?: number;
   tva?: number;
+  /** Autres taxes, chacune sur sa ligne. */
+  taxes?: { label: string; amount: number }[];
   total: number;
   paid: number;
   rest: number;
   payments?: PrintPaymentLine[];
   notes?: string;
   footerNote?: string;
+  /** Libellé de la signature du tiers (« Signature Fournisseur » par défaut). */
+  partySignLabel?: string;
+  /** En-tête de la colonne quantité. */
+  qtyHeader?: string;
 }
 
 /* Palette de la Fiche Journalière — même bleu, même or. */
@@ -1820,7 +1826,7 @@ export function printPurchaseInvoice(opts: PrintPurchaseInvoiceOptions) {
       ${part('2', 'Détail de la facture', '#c2410c', `
         <table>
           <thead><tr>
-            <th>Désignation</th><th class="r">Quantité</th><th class="r">Prix unitaire</th><th class="r">Total</th>
+            <th>Désignation</th><th class="r">${esc(opts.qtyHeader || 'Quantité')}</th><th class="r">Prix unitaire</th><th class="r">Total</th>
           </tr></thead>
           <tbody>
             ${rows || '<tr><td class="b">Aucune ligne</td><td class="r">0</td><td class="r">0,00 DA</td><td class="r">0,00 DA</td></tr>'}
@@ -1836,6 +1842,7 @@ export function printPurchaseInvoice(opts: PrintPurchaseInvoiceOptions) {
           ${opts.subtotal !== undefined ? totalLine('Sous-total', frMoney(opts.subtotal), '#334155') : ''}
           ${opts.reduction ? totalLine('Remise', `- ${frMoney(opts.reduction)}`, '#b45309') : ''}
           ${opts.tva ? totalLine('TVA', frMoney(opts.tva), '#334155') : ''}
+          ${(opts.taxes || []).filter(t => t.amount).map(t => totalLine(t.label, frMoney(t.amount), '#6d28d9')).join('')}
           ${totalLine('Total facture', frMoney(opts.total), PRINT_C.blue700, true)}
           ${totalLine('Payé', frMoney(opts.paid), '#047857')}
           ${totalLine('Reste dû', frMoney(opts.rest), opts.rest > 0 ? '#dc2626' : '#15803d')}
@@ -1860,7 +1867,7 @@ export function printPurchaseInvoice(opts: PrintPurchaseInvoiceOptions) {
           <span>${esc(stationName)} — ${esc(title)} ${esc(opts.ref)}</span>
         </div>
         <div class="sign">
-          <div><p>Signature Fournisseur :</p><div class="line"></div></div>
+          <div><p>${esc(opts.partySignLabel || 'Signature Fournisseur')} :</p><div class="line"></div></div>
           <div><p>Cachet &amp; Signature Station :</p><div class="line"></div></div>
         </div>
       </div>
@@ -1982,7 +1989,7 @@ export function printPaymentReceipt(opts: PrintReceiptOptions) {
 
 // ─── "Imprimer la facture ?" prompt ─────────────────────────────────────────────
 /**
- * Small confirmation shown right after a sale / lavage / vidange is saved, so
+ * Small confirmation shown right after a sale / lavage / réparation is saved, so
  * the user decides whether the document is printed.
  */
 export function AskPrintModal({

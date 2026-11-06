@@ -156,7 +156,7 @@ function reducer(state: BizState, action: Action): BizState {
       if ('posPinned' in patch) patch.posPinnedUpd = nowIso();
       // Idem pour l'option « coût moyen pondéré » de la partie.
       if ('avgCostEnabled' in patch) patch.avgCostEnabledUpd = nowIso();
-      // Idem pour les délais de rappel des clients (lavage / vidange).
+      // Idem pour les délais de rappel des clients (lavage / réparation).
       if ('rappelConfig' in patch) patch.rappelConfigUpd = nowIso();
       return { ...state, [action.module]: { ...mod, ...patch } };
     }
@@ -269,7 +269,7 @@ function migrate(raw: any): BizState | null {
           ? [{
             id: `${r.id}-p1`,
             kind: kind === 'mixte' ? 'reparation' : kind,
-            label: r.problem || (kind === 'lavage' ? 'Lavage' : 'Vidange'),
+            label: r.problem || (kind === 'lavage' ? 'Lavage' : 'Réparation'),
             amount: serviceTotal,
             workerIds: Array.isArray(r.workers) ? r.workers : [],
           }]

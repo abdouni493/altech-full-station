@@ -20,6 +20,7 @@ import Pompistes from "./pages/Pompistes";
 import Brigades from "./pages/Brigades";
 import Suppliers from "./pages/Suppliers";
 import FuelPurchases from "./pages/FuelPurchases";
+import CarburantVentes from "./pages/CarburantVentes";
 import Clients from "./pages/Clients";
 import DailyReport from "./pages/DailyReport";
 import Expenses from "./pages/Expenses";
@@ -128,6 +129,7 @@ const ROUTE_TO_MODULE: Record<string, string> = {
   "/tanks":            "Cuves",
   "/pumps":            "Pompes",
   "/fuel-purchases":   "Achats Carburant",
+  "/ventes-carburant": "Ventes Carburant",
   "/inventory":        "Inventaires",
   "/clients":          "Clients",
   "/suppliers":        "Fournisseurs",
@@ -519,6 +521,7 @@ function AppRoutes({ onLogout }: { onLogout: () => void }) {
         <Route path="/tanks"            element={<ProtectedRoute element={<Tanks />} moduleId="Cuves" />} />
         <Route path="/pumps"            element={<ProtectedRoute element={<Pumps />} moduleId="Pompes" />} />
         <Route path="/fuel-purchases"   element={<ProtectedRoute element={<FuelPurchases />} moduleId="Achats Carburant" />} />
+        <Route path="/ventes-carburant" element={<ProtectedRoute element={<CarburantVentes />} moduleId="Ventes Carburant" />} />
         <Route path="/inventory"        element={<ProtectedRoute element={<Inventory />} moduleId="Inventaires" />} />
 
         {/* Clients / Suppliers */}

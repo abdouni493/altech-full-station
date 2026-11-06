@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
 import {
   X, Clock, Calendar, Users, Printer, TrendingUp, Droplets, Zap,
-  User, DollarSign, ShoppingBag, Activity, ChevronRight, CheckCircle
+  User, DollarSign, ShoppingBag, Activity, ChevronRight, CheckCircle, Wrench, Database
 } from "lucide-react";
+import { JustifOpsList } from "./brigade/JustifOperationsEditor";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/src/lib/utils";
 import {
@@ -152,638 +153,514 @@ const BrigadeDetailModal: React.FC<Props> = ({
     });
   }, [shopSales, brigade]);
 
-  const ActiveIcon = SECTIONS.find(s => s.id === activeSection)?.icon || Calendar;
+  // ── Données dérivées pour l'affichage étape par étape ─────────────────────
+  const justifs = accountingRecord?.justifications || accounting?.justifications || [];
+  const pName = (id?: string) => pompistes.find(p => p.id === id)?.name || (id === brigade.chefId ? (chef?.name || 'Chef') : '—');
+  const startAt = brigade.startDatetime || brigade.startTimestamp;
+  const endAt = brigade.endDatetime || brigade.endTimestamp;
+  const durationH = startAt && endAt ? Math.max(0, (new Date(endAt).getTime() - new Date(startAt).getTime()) / 3600000) : 0;
+  const armoireSaleTotalOf = (pid: string) => (brigade.armoireSales || []).filter(s => s.pompisteId === pid).reduce((a, s) => a + (s.total || 0), 0)
+    + (brigade.magasinProductMoves || []).filter(m => m.kind === 'VENTE' && m.pompisteId === pid).reduce((a, m) => a + (m.total || 0), 0);
+  const totalProducts = (brigade.armoireSales || []).reduce((a, s) => a + (s.total || 0), 0)
+    + (brigade.magasinProductMoves || []).filter(m => m.kind === 'VENTE').reduce((a, m) => a + (m.total || 0), 0);
+  const byType = (t: string) => justifs.filter(j => (j.justificationType || 'CLIENT') === t);
+  const sumOf = (list: { amount?: number }[]) => list.reduce((a, j) => a + (Number(j.amount) || 0), 0);
+  const tpeTotal = sumOf(byType('TPE'));
+  const tagTotal = sumOf(byType('TAG'));
+  const clientTotal = sumOf(byType('CLIENT'));
+  const expenseTotal = sumOf(byType('EXPENSE'));
+  const achatTotal = sumOf(byType('ACHAT_PRODUIT'));
+  const bankByAccount = useMemo(() => {
+    const m = new Map<string, number>();
+    justifs.forEach(j => {
+      if ((j.justificationType === 'TPE' || j.justificationType === 'TAG') && j.bankAccountId)
+        m.set(j.bankAccountId, (m.get(j.bankAccountId) || 0) + (j.amount || 0));
+    });
+    return [...m.entries()];
+  }, [justifs]);
+  const theoTotal = totals.theoretical;
+  const collectedTotal = totals.collected;
+  const justifiedTotal = sumOf(justifs) || totals.justified;
+  const balance = theoTotal - collectedTotal - justifiedTotal;
 
-  const statusColor = brigade.status === 'Ouverte' ? 'bg-green-500' : brigade.status === 'Planifiée' ? 'bg-blue-500' : 'bg-slate-400';
+  const STEP_SECTIONS = [
+    { id: 'info',         num: 0, label: 'Vue d\'ensemble', icon: Activity },
+    { id: 'pompistes',    num: 1, label: 'Pompistes',       icon: Users },
+    { id: 'pompes',       num: 2, label: 'Pompes',          icon: Wrench },
+    { id: 'planning',     num: 3, label: 'Planning',        icon: Calendar },
+    { id: 'depart',       num: 4, label: 'Départ',          icon: Database },
+    { id: 'fin',          num: 5, label: 'Index fin',       icon: Droplets },
+    { id: 'comptabilite', num: 6, label: 'Comptabilité',    icon: DollarSign },
+    { id: 'produits',     num: 7, label: 'Produits & ventes', icon: ShoppingBag },
+    { id: 'historique',   num: 8, label: 'Historique',      icon: Clock },
+  ];
+  const section = STEP_SECTIONS.find(s => s.id === activeSection) ? activeSection
+    : activeSection === 'cuves' ? 'fin' : activeSection === 'pistolets' ? 'fin' : activeSection === 'ventes' ? 'produits' : 'info';
+
+  const statusTone = brigade.status === 'Ouverte' ? 'bg-emerald-400 text-emerald-950' : brigade.status === 'Planifiée' ? 'bg-sky-300 text-sky-950'
+    : brigade.status === 'En attente' ? 'bg-amber-300 text-amber-950' : 'bg-slate-200 text-slate-800';
+
+  const justifLabel = (t?: string) => t === 'TPE' ? '💳 TPE' : t === 'TAG' ? '🏷️ TAG' : t === 'EXPENSE' ? '🧾 Dépense'
+    : t === 'ACHAT_PRODUIT' ? '📦 Achat produit' : '👤 Crédit client';
+  const justifTone = (t?: string) => t === 'TPE' ? 'border-cyan-200 bg-cyan-50/50' : t === 'TAG' ? 'border-purple-200 bg-purple-50/50'
+    : t === 'EXPENSE' ? 'border-emerald-200 bg-emerald-50/50' : t === 'ACHAT_PRODUIT' ? 'border-indigo-200 bg-indigo-50/50' : 'border-orange-200 bg-orange-50/50';
 
   return (
     <div className="modal-shell z-[60]">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" />
-      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-white w-full max-w-5xl rounded-[2rem] shadow-2xl relative z-10 flex flex-col max-h-[var(--modal-max-h)] overflow-hidden border border-slate-100">
+      <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+        className="not-italic bg-slate-50 w-full max-w-6xl rounded-2xl sm:rounded-[2rem] shadow-2xl relative z-10 flex flex-col h-[var(--modal-max-h)] overflow-hidden border border-slate-100">
 
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-900 via-blue-800 to-blue-900 text-white px-6 py-5 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,184,0,0.2)', border: '1px solid rgba(255,184,0,0.3)' }}>
-              <Calendar className="w-5 h-5 text-yellow-400" />
+        <div className="px-5 sm:px-7 py-4 sm:py-5 text-white shrink-0 border-b-2 border-[#FFB800]/60"
+          style={{ background: 'linear-gradient(120deg, #001233 0%, #001f5c 45%, #003087 100%)' }}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(255,184,0,0.18)', border: '1px solid rgba(255,184,0,0.35)' }}>
+                <Calendar className="w-5 h-5 text-[#FFB800]" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-black text-sm sm:text-base uppercase tracking-widest truncate">Détails de la brigade</h2>
+                <p className="text-[11px] text-blue-200 font-bold mt-0.5 truncate">
+                  {fmtDate(brigade.date)} · {brigade.shift} · {(brigade.pompisteIds || []).length} pompiste(s)
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="font-black text-sm uppercase tracking-widest italic">Détails Brigade</h2>
-              <p className="text-[11px] text-blue-200 font-bold mt-0.5">{brigade.date} · {brigade.shift} · {chef?.name || 'N/A'}</p>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className={cn('px-3 py-1 rounded-full text-[10px] font-black uppercase', statusTone)}>{brigade.status}</span>
+              <button onClick={onClose} className="modal-close"><X className="w-5 h-5" /></button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => window.print()} className="p-2 hover:bg-white/20 rounded-lg transition text-white"><Printer className="w-4 h-4" /></button>
-            <button onClick={onClose} className="p-2 hover:bg-white/20 rounded-lg transition text-white"><X className="w-5 h-5" /></button>
+          {/* KPI strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-4">
+            {[
+              { l: 'Litres vendus', v: `${fmtN(totals.liters)} L`, c: 'text-sky-200' },
+              { l: 'Théorique', v: money(theoTotal), c: 'text-[#FFB800]' },
+              { l: 'Espèces', v: money(collectedTotal), c: 'text-emerald-300' },
+              { l: 'Justifié', v: money(justifiedTotal), c: 'text-violet-200' },
+              { l: 'Décalage', v: money(balance), c: Math.abs(balance) < 1 ? 'text-emerald-300' : 'text-red-300' },
+            ].map(k => (
+              <div key={k.l} className="rounded-xl bg-white/10 border border-white/10 px-3 py-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-blue-200">{k.l}</p>
+                <p className={cn('font-black tabular-nums text-sm sm:text-base', k.c)}>{k.v}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Body: sidebar + content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left sidebar */}
-          <div className="w-44 shrink-0 flex flex-col border-r border-slate-100 bg-white">
-            <div className="px-3 py-3 space-y-0.5 flex-1">
-              {SECTIONS.map(s => {
-                const Icon = s.icon;
-                const isActive = activeSection === s.id;
-                return (
-                  <button key={s.id} onClick={() => setActiveSection(s.id)}
-                    className={cn("w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all text-[11px] font-bold",
-                      isActive ? "bg-blue-900 text-yellow-400" : "text-slate-500 hover:bg-slate-100 hover:text-slate-700")}>
-                    <Icon className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{s.label}</span>
-                    {isActive && <ChevronRight className="w-3 h-3 ml-auto opacity-60" />}
-                  </button>
-                );
-              })}
-            </div>
-            {/* Status chip */}
-            <div className="p-3 border-t border-slate-100">
-              <div className={cn("flex items-center gap-2 px-3 py-2 rounded-xl", brigade.status === 'Ouverte' ? 'bg-green-50' : brigade.status === 'Planifiée' ? 'bg-blue-50' : 'bg-slate-50')}>
-                <div className={cn("w-2 h-2 rounded-full", statusColor)} />
-                <span className="text-[10px] font-black uppercase tracking-wide text-slate-600">{brigade.status}</span>
-              </div>
-            </div>
-          </div>
+        <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
+          {/* Step navigation */}
+          <nav className="md:w-56 shrink-0 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-2 md:p-3 flex md:flex-col gap-1 overflow-x-auto md:overflow-y-auto">
+            {STEP_SECTIONS.map(s => {
+              const Icon = s.icon;
+              const active = section === s.id;
+              return (
+                <button key={s.id} onClick={() => setActiveSection(s.id)}
+                  className={cn('flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all shrink-0',
+                    active ? 'bg-gradient-to-r from-[#001f5c] to-[#003087] text-white shadow-md' : 'text-slate-600 hover:bg-slate-100')}>
+                  <span className={cn('w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0',
+                    active ? 'bg-[#FFB800] text-[#001233]' : 'bg-slate-100 text-slate-500')}>
+                    {s.num >= 1 && s.num <= 6 ? s.num : <Icon className="w-3.5 h-3.5" />}
+                  </span>
+                  <span className="text-[11px] font-black uppercase tracking-wide whitespace-nowrap">{s.label}</span>
+                  {active && <ChevronRight className="w-3.5 h-3.5 ml-auto hidden md:block" />}
+                </button>
+              );
+            })}
+          </nav>
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto bg-slate-50 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6">
             <AnimatePresence mode="wait">
+              <motion.div key={section} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-5">
 
-              {/* ── Informations ── */}
-              {activeSection === 'info' && (
-                <motion.div key="info" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 space-y-5">
-                  <SectionHeader icon={Calendar} label="Informations Brigade" />
-                  <div className="grid grid-cols-2 gap-4">
+                {/* ── Vue d'ensemble ── */}
+                {section === 'info' && (<>
+                  <StepTitle num={0} icon={Activity} title="Vue d'ensemble" hint="Résumé de chaque étape de la création de la brigade" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <OverviewCard n={1} title="Pompistes" color="blue" onClick={() => setActiveSection('pompistes')}
+                      value={`${(brigade.pompisteAssignments || []).filter(a => a.present).length || (brigade.pompisteIds || []).length} présent(s)`}
+                      sub={(brigade.pompisteIds || []).map(pName).join(', ') || '—'} />
+                    <OverviewCard n={2} title="Pompes" color="indigo" onClick={() => setActiveSection('pompes')}
+                      value={`${new Set(nozzleData.map(n => n.pump?.id)).size} pompe(s) · ${nozzleData.length} pistolet(s)`}
+                      sub={totals.byFuel.map(f => `${f.fuelType}: ${fmtN(f.liters)} L`).join(' · ') || '—'} />
+                    <OverviewCard n={3} title="Planning" color="sky" onClick={() => setActiveSection('planning')}
+                      value={`${fmtDT(startAt)} → ${fmtDT(endAt)}`} sub={durationH ? `Durée : ${durationH.toFixed(1)} h` : '—'} />
+                    <OverviewCard n={4} title="Départ" color="amber" onClick={() => setActiveSection('depart')}
+                      value={`${tankData.length} cuve(s) relevée(s)`} sub={tankData.map(t => `${t.tank.name}: ${fmtN(t.startL)} L`).join(' · ') || '—'} />
+                    <OverviewCard n={5} title="Index fin" color="orange" onClick={() => setActiveSection('fin')}
+                      value={`${fmtN(totals.liters)} L débités`} sub={money(totals.computedAmount)} />
+                    <OverviewCard n={6} title="Comptabilité" color="emerald" onClick={() => setActiveSection('comptabilite')}
+                      value={money(theoTotal)} sub={`Espèces ${money(collectedTotal)} · Justifié ${money(justifiedTotal)}`} />
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                     {[
-                      { label: 'Date', value: brigade.date },
-                      { label: 'Quart', value: brigade.shift },
-                      { label: 'Chef', value: chef?.name || 'N/A' },
-                      { label: 'Statut', value: brigade.status },
-                      { label: 'Heure Début', value: brigade.startTime || '—' },
-                      { label: 'Heure Fin', value: brigade.endTime || '—' },
-                      { label: 'Démarrage', value: brigade.startTimestamp ? new Date(brigade.startTimestamp).toLocaleString('fr-FR') : '—' },
-                      { label: 'Clôture', value: brigade.endTimestamp ? new Date(brigade.endTimestamp).toLocaleString('fr-FR') : '—' },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="bg-white rounded-2xl p-4 border border-slate-100">
-                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</p>
-                        <p className="font-black text-slate-800 text-sm">{value}</p>
+                      { l: 'TPE', v: tpeTotal, c: 'text-cyan-700 bg-cyan-50 border-cyan-100' },
+                      { l: 'TAG', v: tagTotal, c: 'text-purple-700 bg-purple-50 border-purple-100' },
+                      { l: 'Crédit client', v: clientTotal, c: 'text-orange-700 bg-orange-50 border-orange-100' },
+                      { l: 'Dépenses', v: expenseTotal, c: 'text-emerald-700 bg-emerald-50 border-emerald-100' },
+                      { l: 'Achats produits', v: achatTotal, c: 'text-indigo-700 bg-indigo-50 border-indigo-100' },
+                      { l: 'Produits vendus', v: totalProducts, c: 'text-rose-700 bg-rose-50 border-rose-100' },
+                    ].map(k => (
+                      <div key={k.l} className={cn('rounded-xl border px-3 py-2.5', k.c)}>
+                        <p className="text-[9px] font-black uppercase tracking-widest opacity-70">{k.l}</p>
+                        <p className="font-black tabular-nums text-sm">{money(k.v)}</p>
                       </div>
                     ))}
                   </div>
-                  {brigade.canReactivate && (
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] font-bold text-amber-700">🔄 Réactivation possible après clôture</div>
-                  )}
-                </motion.div>
-              )}
+                </>)}
 
-              {/* ── Cuves ── */}
-              {activeSection === 'cuves' && (
-                <motion.div key="cuves" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 space-y-4">
-                  <SectionHeader icon={Droplets} label="Niveaux des Cuves" />
-                  {tankData.length === 0 && <Empty label="Aucune donnée de cuve" />}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-blue-900 text-white">
-                        <tr>{['Cuve', 'Type', 'Début °/%', 'Début L', 'Fin °/%', 'Fin L', 'Δ Cuve L', 'Δ Pistolets L', 'Écart L'].map(h => (
-                          <th key={h} className="px-3 py-2.5 text-left text-[9px] font-black uppercase tracking-widest">{h}</th>
-                        ))}</tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white">
-                        {tankData.map(({ tank, startL, startDeg, endL, endDeg, cuveDiff, nozzleDiff, difference, measured, type }) => (
-                          <tr key={tank.id} className="hover:bg-blue-50/20">
-                            <td className="px-3 py-3 font-black text-slate-800">{tank.name}</td>
-                            <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-blue-100 text-blue-700">{tank.type}</span></td>
-                            <td className="px-3 py-3 font-mono text-[11px] text-slate-500">{startDeg.toFixed(1)}{tank.type === 'GPL' ? '%' : '°'}</td>
-                            <td className="px-3 py-3 font-black text-blue-700">{startL.toLocaleString('fr-FR')} L</td>
-                            {/* Sans jauge de fin relevée, il n'y a pas de mesure de
-                                cuve à afficher — et donc aucun écart à en tirer. */}
-                            <td className="px-3 py-3 font-mono text-[11px] text-slate-500">{measured ? `${endDeg.toFixed(1)}${tank.type === 'GPL' ? '%' : '°'}` : '—'}</td>
-                            <td className="px-3 py-3 font-black text-slate-700">{measured ? `${endL.toLocaleString('fr-FR')} L` : '—'}</td>
-                            <td className="px-3 py-3 font-black text-slate-700">{measured ? `${cuveDiff.toFixed(1)} L` : '—'}</td>
-                            <td className="px-3 py-3 font-black text-blue-700">{nozzleDiff.toFixed(1)} L</td>
-                            <td className={cn("px-3 py-3 font-black", !measured ? "text-slate-400" : type === 'CORRECT' ? "text-green-700" : type === 'RETOUR_CUVE' ? "text-amber-700" : "text-red-700")}>
-                              {measured ? `${difference.toFixed(1)} L` : 'non relevée'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* ── Pistolets ── */}
-              {activeSection === 'pistolets' && (
-                <motion.div key="pistolets" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 space-y-4">
-                  <SectionHeader icon={Zap} label="Index Pistolets" />
-                  {nozzleData.length === 0 && <Empty label="Aucun pistolet actif" />}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="bg-purple-900 text-white">
-                        <tr>{['Pistolet', 'Pompe', 'Carburant', 'Index Début', 'Index Fin', 'Différence (L)', 'Prix/L', 'Montant'].map(h => (
-                          <th key={h} className="px-3 py-2.5 text-left text-[9px] font-black uppercase tracking-widest">{h}</th>
-                        ))}</tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 bg-white">
-                        {nozzleData.map(d => (
-                          <tr key={d.nozzle.id} className="hover:bg-purple-50/20">
-                            <td className="px-3 py-3 font-black text-slate-800">{d.nozzle.name}</td>
-                            <td className="px-3 py-3 text-slate-600">{d.pump?.name || '—'}</td>
-                            {/* Le carburant vient de la CUVE du pistolet : deux
-                                pistolets d'une même pompe peuvent différer. */}
-                            <td className="px-3 py-3">
-                              <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-black", d.missingFuelType ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700")}>
-                                {d.fuelType || 'CUVE NON DÉFINIE'}
-                              </span>
-                              <span className="block text-[9px] text-slate-400 mt-0.5">{d.tank?.name || '—'}</span>
-                            </td>
-                            <td className="px-3 py-3 font-mono text-[11px] text-slate-500 tabular-nums">{d.startIdx.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</td>
-                            <td className="px-3 py-3 font-mono text-[11px] text-slate-500 tabular-nums">{d.endIdx.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</td>
-                            <td className={cn("px-3 py-3 font-black", d.inverted ? "text-red-600" : "text-blue-700")}>
-                              {d.liters.toFixed(2)} L
-                              {d.inverted && <span className="block text-[9px] font-bold">index de fin &lt; début</span>}
-                            </td>
-                            <td className="px-3 py-3 text-slate-500 tabular-nums text-[11px]">{d.price.toFixed(2)}</td>
-                            <td className="px-3 py-3 font-black text-green-700">{d.revenue.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} DA</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      {nozzleData.length > 0 && (
-                        <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                          <tr>
-                            <td colSpan={5} className="px-3 py-2 font-black text-[10px] uppercase tracking-widest text-slate-500">TOTAL</td>
-                            <td className="px-3 py-2 font-black text-blue-800">{totals.liters.toFixed(2)} L</td>
-                            <td />
-                            <td className="px-3 py-2 font-black text-green-800">{totals.computedAmount.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} DA</td>
-                          </tr>
-                        </tfoot>
-                      )}
-                    </table>
-                  </div>
-
-                  {/* Récapitulatif par carburant, tous pistolets confondus */}
-                  {totals.byFuel.length > 0 && (
-                    <div>
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Total par carburant</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        {totals.byFuel.map(f => (
-                          <div key={f.fuelType} className={cn("p-4 rounded-2xl border", f.fuelType === 'INCONNU' ? "bg-red-50 border-red-200" : "bg-white border-slate-200")}>
-                            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                              {f.fuelType === 'INCONNU' ? 'Cuve non définie' : f.fuelType} · {f.nozzleCount} pistolet(s)
-                            </p>
-                            <p className="font-black text-blue-700">{f.liters.toFixed(2)} L</p>
-                            <p className="text-[11px] text-slate-500 font-bold">× {f.price.toFixed(2)} DA/L</p>
-                            <p className="font-black text-green-700 mt-1">{f.amount.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} DA</p>
-                          </div>
-                        ))}
-                      </div>
+                {/* ── 1. Pompistes ── */}
+                {section === 'pompistes' && (<>
+                  <StepTitle num={1} icon={Users} title="Pompistes" hint="Les pompistes présents sur la brigade et le chef de brigade" />
+                  {chef && (
+                    <div className="rounded-2xl bg-white border border-slate-200 p-4 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#001f5c] text-[#FFB800] flex items-center justify-center font-black">{chef.name?.[0] || 'C'}</div>
+                      <div><p className="text-[10px] font-black uppercase text-slate-400">Chef de brigade</p><p className="font-black text-slate-800">{chef.name}</p></div>
                     </div>
                   )}
-                </motion.div>
-              )}
-
-              {/* ── Pompistes ── */}
-              {activeSection === 'pompistes' && (
-                <motion.div key="pompistes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 space-y-4">
-                  <SectionHeader icon={Users} label="Pompistes de Brigade" />
-                  {pompisteGroups.length === 0 ? <Empty label="Aucun pompiste dans cette brigade" /> : (
-                    <div className="space-y-3">
-                      {pompisteGroups.map(group => (
-                        <div key={group.pompisteId} className={cn("p-4 rounded-2xl border-2",
-                          group.unassigned ? "border-amber-300 bg-amber-50/40"
-                            : group.present ? "border-green-200 bg-white"
-                            : "border-red-200 bg-red-50/30 opacity-70")}>
-                          <div className="flex items-center gap-3 mb-3">
-                            <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center font-black text-white", group.present ? "bg-blue-700" : "bg-red-400")}>
-                              {group.name[0] || '?'}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {(brigade.pompisteAssignments?.length ? brigade.pompisteAssignments : (brigade.pompisteIds || []).map(id => ({ pompisteId: id, trackId: '', present: true }))).map((a: any) => {
+                      const p = pompistes.find(x => x.id === a.pompisteId);
+                      const g = pompisteGroups.find(x => x.pompisteId === a.pompisteId);
+                      return (
+                        <div key={a.pompisteId} className="rounded-2xl bg-white border border-slate-200 p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 text-white flex items-center justify-center font-black">{(p?.name || pName(a.pompisteId))[0]}</div>
+                            <div className="min-w-0 flex-1">
+                              <p className="font-black text-slate-800 truncate">{p?.name || pName(a.pompisteId)}</p>
+                              <p className="text-[10px] font-bold text-slate-400">{p?.phone || ''}{a.chefActingAsPompiste ? ' · Chef en poste pompiste' : ''}</p>
                             </div>
-                            <div className="flex-1">
-                              <p className="font-black text-slate-800">{group.name}</p>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                <span className="text-[10px] text-slate-500">
-                                  {group.pumps.map(p => p.pump?.name || p.pump?.number || '—').join(', ') || 'aucune pompe'}
-                                </span>
-                                <span className={cn("px-1.5 py-0.5 text-[9px] font-black rounded-full", group.present ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")}>{group.present ? 'Présent' : 'Absent'}</span>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-black text-blue-700">{group.totalLiters.toFixed(2)} L</p>
-                              <p className="font-black text-green-700 text-sm">{group.totalAmount.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} DA</p>
-                            </div>
+                            <span className={cn('px-2 py-0.5 rounded-full text-[9px] font-black uppercase', a.present ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600')}>
+                              {a.present ? 'Présent' : 'Absent'}
+                            </span>
                           </div>
-
-                          {/* Ce que chaque pompiste a vendu, carburant par carburant */}
-                          {group.byFuel.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {group.byFuel.map(f => (
-                                <span key={f.fuelType} className={cn("px-2.5 py-1 rounded-lg text-[10px] font-black border",
-                                  f.fuelType === 'INCONNU' ? "bg-red-50 border-red-200 text-red-700" : "bg-slate-50 border-slate-200 text-slate-700")}>
-                                  {f.fuelType === 'INCONNU' ? 'CUVE NON DÉFINIE' : f.fuelType}
-                                  <span className="font-bold text-slate-500"> · {f.liters.toFixed(2)} L × {f.price.toFixed(2)} = </span>
-                                  <span className="text-green-700">{f.amount.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} DA</span>
-                                </span>
-                              ))}
+                          {g && (
+                            <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                              <Mini l="Litres" v={`${fmtN(g.totalLiters)} L`} />
+                              <Mini l="Théorique" v={money(g.theoretical)} />
+                              <Mini l="Écart" v={money(g.ecart)} tone={Math.abs(g.ecart) < 1 ? 'ok' : 'bad'} />
                             </div>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </motion.div>
-              )}
+                      );
+                    })}
+                  </div>
+                </>)}
 
-              {/* ── Comptabilité ── */}
-              {activeSection === 'comptabilite' && (
-                <motion.div key="comptabilite" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 space-y-5">
-                  <SectionHeader icon={DollarSign} label="Comptabilité" />
-                  {!accountingRecord ? (
-                    <div className="text-center py-12">
-                      <DollarSign className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-                      <p className="text-slate-400 font-medium">Aucune comptabilité enregistrée</p>
-                      <p className="text-slate-300 text-sm mt-1">Utilisez le bouton "Comptabilité" depuis la carte brigade</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-5">
-
-                      {/* ① Synthèse financière */}
-                      <div className="grid grid-cols-3 gap-4">
-                        {[
-                          { label: 'Total Dû', value: `${accountingRecord.totalDue.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA`, color: 'text-blue-700' },
-                          { label: 'Espèces Reçues', value: `${accountingRecord.cashReceived.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA`, color: 'text-green-700' },
-                          { label: 'Reste', value: `${accountingRecord.rest.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA`, color: Math.abs(accountingRecord.rest) < 1 ? 'text-green-700' : 'text-red-700' },
-                        ].map(({ label, value, color }) => (
-                          <div key={label} className="bg-white rounded-2xl p-4 border border-slate-100 text-center">
-                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">{label}</p>
-                            <p className={cn("font-black text-lg", color)}>{value}</p>
+                {/* ── 2. Pompes ── */}
+                {section === 'pompes' && (<>
+                  <StepTitle num={2} icon={Wrench} title="Pompes" hint="Les pompes et pistolets tenus par chaque pompiste" />
+                  {pompisteGroups.length === 0 ? <Empty label="Aucune pompe attribuée" /> : pompisteGroups.map(g => (
+                    <div key={g.pompisteId} className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+                      <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 to-white border-b border-slate-100 flex items-center justify-between">
+                        <p className="font-black text-slate-800 flex items-center gap-2"><User className="w-4 h-4 text-indigo-500" /> {g.name}</p>
+                        <p className="text-[11px] font-black text-indigo-700">{g.pumps.length} pompe(s) · {fmtN(g.totalLiters)} L</p>
+                      </div>
+                      <div className="p-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        {g.pumps.map((pg, i) => (
+                          <div key={i} className="rounded-xl border border-slate-100 p-3">
+                            <p className="text-xs font-black text-slate-700 mb-2">⛽ {pg.pump?.name || `Pompe ${pg.pump?.number || i + 1}`}</p>
+                            <div className="space-y-1">
+                              {pg.nozzles.map(n => (
+                                <div key={n.nozzle.id} className="flex items-center justify-between text-[11px] font-bold">
+                                  <span className="text-slate-600">{n.nozzle.name} <span className="text-slate-400">· {n.tank?.name || '—'} ({n.fuelType || '?'})</span></span>
+                                  <span className="tabular-nums text-slate-800">{fmtN(n.liters)} L</span>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {pg.byFuel.map(f => <span key={f.fuelType} className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 text-[9px] font-black">{f.fuelType} {fmtN(f.liters)} L</span>)}
+                            </div>
                           </div>
                         ))}
                       </div>
-                      <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                        <span className={cn("px-2 py-1 rounded-full text-[10px] font-black", accountingRecord.status === 'completed' ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700")}>
-                          {accountingRecord.status === 'completed' ? '✓ Comptabilisée' : 'En cours'}
-                        </span>
-                        {accountingRecord.createdBy && <span className="text-[10px] text-slate-500 font-bold">par {accountingRecord.createdBy}</span>}
-                      </div>
-
-                      {/* ② Vérification des cuves */}
-                      {Object.keys(accountingRecord.cuveVerifications || {}).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vérification Cuves</p>
-                          {(Object.entries(accountingRecord.cuveVerifications) as [string, { verified: boolean; corrected: boolean; correctedValue?: number }][]).map(([tankId, ver]) => {
-                            const tank = tanks.find(t => t.id === tankId);
-                            return (
-                              <div key={tankId} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-100">
-                                <span className={cn("w-2 h-2 rounded-full flex-shrink-0", ver.verified ? "bg-green-500" : "bg-slate-300")} />
-                                <span className="font-black text-slate-700 text-sm flex-1">{tank?.name || tankId}</span>
-                                {ver.corrected && ver.correctedValue !== undefined && (
-                                  <span className="text-[10px] font-black px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full">Corrigé → {ver.correctedValue.toLocaleString('fr-FR')} L</span>
-                                )}
-                                <span className={cn("text-[10px] font-black px-2 py-0.5 rounded-full", ver.verified ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500")}>
-                                  {ver.verified ? (ver.corrected ? 'Non conforme' : 'Conforme') : 'Non vérifié'}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* ③ Vérification des pistolets */}
-                      {Object.keys(accountingRecord.nozzleVerifications || {}).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Vérification Pistolets</p>
-                          {(Object.entries(accountingRecord.nozzleVerifications) as [string, { verified: boolean; corrected: boolean; correctedValue?: number }][]).map(([nozzleId, ver]) => {
-                            const nozzle = pumpNozzles.find(n => n.id === nozzleId);
-                            const pump = pumps.find(p => p.id === nozzle?.pumpId);
-                            return (
-                              <div key={nozzleId} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-slate-100">
-                                <span className={cn("w-2 h-2 rounded-full flex-shrink-0", ver.verified ? "bg-green-500" : "bg-slate-300")} />
-                                <div className="flex-1">
-                                  <span className="font-black text-slate-700 text-sm">{nozzle?.name || nozzleId}</span>
-                                  <span className="text-[10px] text-slate-400 ml-2">{pump?.name}</span>
-                                </div>
-                                {ver.corrected && ver.correctedValue !== undefined && (
-                                  <span className="text-[10px] font-black px-2 py-0.5 bg-orange-100 text-orange-700 rounded-full">Corrigé → {ver.correctedValue.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</span>
-                                )}
-                                <span className={cn("text-[10px] font-black px-2 py-0.5 rounded-full", ver.verified ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500")}>
-                                  {ver.verified ? (ver.corrected ? 'Non conforme' : 'Conforme') : 'Non vérifié'}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* ④ Comparaison Cuves vs Pistolets */}
-                      {(accountingRecord.tankSummary || []).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Comparaison Cuves / Pistolets</p>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead className="bg-blue-900 text-white">
-                                <tr>{['Cuve', 'Sortie Cuve', 'Pistolets', 'Écart', 'Valeur'].map(h => (
-                                  <th key={h} className="px-3 py-2 text-left text-[9px] font-black uppercase tracking-widest">{h}</th>
-                                ))}</tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 bg-white">
-                                {(accountingRecord.tankSummary as any[]).map((ts: any) => {
-                                  const tank = tanks.find(t => t.id === ts.tankId);
-                                  return (
-                                    <tr key={ts.tankId} className={cn("hover:bg-slate-50", Math.abs(ts.ecart) < 2 ? "" : "bg-red-50/30")}>
-                                      <td className="px-3 py-2 font-black text-slate-800">{tank?.name || ts.tankId}</td>
-                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{(ts.diff || 0).toFixed(1)} L</td>
-                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{((ts.diff || 0) - (ts.ecart || 0)).toFixed(1)} L</td>
-                                      <td className={cn("px-3 py-2 font-black", Math.abs(ts.ecart) < 2 ? "text-green-700" : "text-red-700")}>{(ts.ecart || 0) > 0 ? '+' : ''}{(ts.ecart || 0).toFixed(1)} L</td>
-                                      <td className={cn("px-3 py-2 font-black text-sm", (ts.ecartMoney || 0) > 0 ? "text-amber-700" : "text-green-700")}>{(ts.ecartMoney || 0).toFixed(0)} DA</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      )}
-
-                      {(accountingRecord.nozzleSummary || []).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Détails Pistolets</p>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead className="bg-slate-900 text-white">
-                                <tr>{['Pistolet', 'Pompe', 'Début', 'Fin', 'Litres', 'Montant'].map(h => (
-                                  <th key={h} className="px-3 py-2 text-left text-[9px] font-black uppercase tracking-widest">{h}</th>
-                                ))}</tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 bg-white">
-                                {(accountingRecord.nozzleSummary as any[]).map((ns: any) => {
-                                  const nozzle = pumpNozzles.find(n => n.id === ns.nozzleId);
-                                  const pump = pumps.find(p => p.id === nozzle?.pumpId);
-                                  return (
-                                    <tr key={ns.nozzleId} className="hover:bg-slate-50">
-                                      <td className="px-3 py-2 font-black text-slate-800">{nozzle?.name || ns.nozzleId}</td>
-                                      <td className="px-3 py-2 text-slate-600">{pump?.name || '—'}</td>
-                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{(ns.startIdx || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</td>
-                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{(ns.endIdx || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })}</td>
-                                      <td className="px-3 py-2 font-black text-blue-700">{(ns.liters || 0).toFixed(2)} L</td>
-                                      <td className="px-3 py-2 font-black text-green-700">{(ns.revenue || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ⑧ Résumé des Agents (Pompistes) */}
-                      {accountingRecord.pompisteSummary && Object.keys(accountingRecord.pompisteSummary).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Détails Comptabilité Pompistes</p>
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead className="bg-blue-900 text-white">
-                                <tr>{['Pompiste', 'Piste', 'Théorique', 'Espèces', 'Justif.', 'Écart'].map(h => (
-                                  <th key={h} className="px-3 py-2 text-left text-[9px] font-black uppercase tracking-widest">{h}</th>
-                                ))}</tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 bg-white">
-                                {Object.entries(accountingRecord.pompisteSummary).map(([pompisteId, data]: [string, any]) => {
-                                  const pompiste = pompistes.find(p => p.id === pompisteId);
-                                  const track = tracks.find(t => t.id === data.trackId);
-                                  return (
-                                    <tr key={pompisteId} className="hover:bg-slate-50">
-                                      <td className="px-3 py-2 font-black text-slate-800">{pompiste?.name || pompisteId}</td>
-                                      <td className="px-3 py-2 text-slate-600">{track?.name || data.trackName || '—'}</td>
-                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{(data.theoretical || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</td>
-                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{(data.cashReceived || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</td>
-                                      <td className="px-3 py-2 font-mono text-[11px] text-slate-600">{(data.justifTotal || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</td>
-                                      <td className={cn("px-3 py-2 font-black text-[11px]", (data.ecart || 0) < 0 ? "text-green-700" : (data.ecart || 0) > 0 ? "text-red-700" : "text-slate-600")}>
-                                        {(data.ecart || 0) > 0 ? '+' : ''}{(data.ecart || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} MAD
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ⑤ Décalage par agent */}
-                      {Object.keys(accountingRecord.decalageSummary || {}).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Décalage par Agent</p>
-                          {Object.entries(accountingRecord.decalageSummary).map(([workerId, d]: [string, any]) => {
-                            const pompiste = pompistes.find(p => p.id === workerId);
-                            return (
-                              <div key={workerId} className={cn("flex items-center gap-3 p-3 rounded-xl border", d.money < 0 ? "bg-red-50 border-red-100" : "bg-amber-50 border-amber-100")}>
-                                <div className="w-8 h-8 bg-blue-700 text-white rounded-lg flex items-center justify-center font-black text-xs">{pompiste?.name[0] || '?'}</div>
-                                <div className="flex-1">
-                                  <p className="font-black text-slate-800 text-sm">{pompiste?.name || workerId}</p>
-                                  <p className="text-[10px] text-slate-500">{d.liters?.toFixed(2)} L</p>
-                                </div>
-                                <div className="text-right">
-                                  <p className={cn("font-black text-sm", d.money < 0 ? "text-red-700" : "text-amber-700")}>{d.money > 0 ? '+' : ''}{d.money?.toFixed(0)} DA</p>
-                                  <span className={cn("text-[9px] font-black px-2 py-0.5 rounded-full", d.money < 0 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700")}>
-                                    {d.money < 0 ? 'BONUS' : 'RETENUE'}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* ⑥ Reste affecté */}
-                      {accountingRecord.restAssignedWorkerId && Math.abs(accountingRecord.restAssignedAmount || 0) > 0.01 && (
-                        <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-                          <p className="text-[10px] font-black text-amber-900 uppercase tracking-widest mb-2">Reste Affecté</p>
-                          {(() => {
-                            const isChef = accountingRecord.restAssignedWorkerType === 'chef_brigade';
-                            const worker = isChef
-                              ? brigadeChefs.find(c => c.id === accountingRecord.restAssignedWorkerId)
-                              : pompistes.find(p => p.id === accountingRecord.restAssignedWorkerId);
-                            return (
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <p className="font-black text-slate-800">{worker?.name || accountingRecord.restAssignedWorkerId}</p>
-                                  <span className="text-[9px] font-black px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full">{isChef ? 'Chef de Brigade' : 'Pompiste'}</span>
-                                </div>
-                                <div className="text-right">
-                                  <p className="font-black text-amber-800">{(accountingRecord.restAssignedAmount || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</p>
-                                  <span className={cn("text-[9px] font-black px-2 py-0.5 rounded-full", (accountingRecord.rest || 0) < 0 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")}>
-                                    {(accountingRecord.rest || 0) < 0 ? 'BONUS' : 'RETENUE'}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      )}
-
-                      {/* ⑥bis Produits — Armoires : ventes, achats et stock début → fin */}
-                      {hasArmoireMoves(brigade) && (
-                        <BrigadeArmoireMovements brigade={brigade} pompistes={pompistes} armoires={armoires} />
-                      )}
-
-                      {/* ⑦ Justifications Clients / TAG / TPE / Dépenses */}
-                      {(accountingRecord.justifications || []).length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Justifications Clients / TAG / TPE / Dépenses</p>
-                          {(accountingRecord.justifications || []).map(j => {
-                            const client = clients.find(c => c.id === j.clientId);
-                            const track = tracks.find(t => t.id === j.trackId);
-                            const pompiste = pompistes.find(p => p.id === j.pompisteId);
-                            const isExpense = j.justificationType === 'EXPENSE';
-                            const isProduct = j.justificationType === 'ACHAT_PRODUIT';
-                            const label = isProduct
-                              ? `📦 ${j.productName || 'Produit'} × ${(j.quantity || 0).toLocaleString('fr-FR')}${j.consigneMode ? (j.consigneMode === 'REMPLISSAGE' ? ' (remplissage)' : ' (bouteilles vides)') : ''} → ${armoires.find(a => a.id === j.armoireId)?.name || 'armoire'}`
-                              : (j.clientName || client?.name || j.notes || j.justificationType || 'Justification');
-                            const typeLabel = isExpense ? 'DÉPENSE' : isProduct ? 'ACHAT PRODUIT' : (j.justificationType || 'CLIENT');
-                            return (
-                              <div key={j.id} className={cn('flex items-center justify-between p-3 rounded-xl border', isExpense ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100')}>
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-sm font-bold text-slate-700">{isExpense ? '🧾 ' : ''}{label}</span>
-                                    <span className={cn('text-[9px] font-black px-2 py-0.5 rounded-full', isExpense ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>{typeLabel}</span>
-                                  </div>
-                                  <div className="text-[9px] text-slate-500 mt-1 space-x-2">
-                                    {isExpense && j.expenseCategory ? (
-                                      <span className="font-black text-emerald-700">{j.expenseCategory}</span>
-                                    ) : null}
-                                    {isExpense && j.notes ? <span>{j.notes}</span> : null}
-                                    {j.fuelType && <span>{j.fuelType}</span>}
-                                    {track && <span>{track.name}</span>}
-                                    {pompiste && <span>{pompiste.name}</span>}
-                                    {j.liters ? <span>{j.liters.toLocaleString('fr-FR')} L</span> : null}
-                                  </div>
-                                  {/* Où l'argent est ALLÉ : un TAG / TPE crédite un compte
-                                      bancaire, et la fiche doit le nommer — c'est là qu'on
-                                      vérifie que la ligne existe bien dans son historique. */}
-                                  {/* Une dépense a sa contrepartie dans l'écran Dépenses :
-                                      on le dit ici, c'est là qu'on la retrouve. */}
-                                  {isExpense && (
-                                    <p className="text-[9px] font-black mt-1 text-emerald-600">
-                                      → Dépenses (Carburant) · payée sur les espèces de la brigade
-                                    </p>
-                                  )}
-                                  {(j.justificationType === 'TAG' || j.justificationType === 'TPE') && (
-                                    <p className={cn('text-[9px] font-black mt-1',
-                                      j.bankAccountId ? 'text-emerald-600' : 'text-red-500')}>
-                                      {j.bankAccountId
-                                        ? `→ ${bankAccounts.find(a => a.id === j.bankAccountId)?.name || 'Compte bancaire'}`
-                                        : 'Aucun compte crédité — argent absent des soldes bancaires'}
-                                    </p>
-                                  )}
-                                </div>
-                                <span className="font-black text-blue-700">{j.amount.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
                     </div>
-                  )}
-                </motion.div>
-              )}
+                  ))}
+                </>)}
 
-              {/* ── Ventes Magasin ── */}
-              {activeSection === 'ventes' && (
-                <motion.div key="ventes" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 space-y-4">
-                  <SectionHeader icon={ShoppingBag} label={`Ventes Magasin (${brigadeSales.length})`} />
-                  {brigadeSales.length === 0 ? (
-                    <Empty label="Aucune vente magasin pendant cette brigade" />
-                  ) : (
-                    <>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-slate-700 text-white">
-                            <tr>{['Date', 'Total', 'Mode Paiement', 'Statut'].map(h => (
-                              <th key={h} className="px-3 py-2.5 text-left text-[9px] font-black uppercase tracking-widest">{h}</th>
-                            ))}</tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 bg-white">
-                            {brigadeSales.map(s => (
-                              <tr key={s.id} className="hover:bg-slate-50">
-                                <td className="px-3 py-3 text-[11px] font-bold text-slate-700">{new Date(s.date).toLocaleDateString('fr-FR')}</td>
-                                <td className="px-3 py-3 font-black text-green-700">{s.total.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</td>
-                                <td className="px-3 py-3 text-slate-600 text-[11px]">{s.paymentMode}</td>
-                                <td className="px-3 py-3"><span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-green-100 text-green-700">{s.status}</span></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot className="bg-slate-50 border-t-2 border-slate-200">
-                            <tr>
-                              <td className="px-3 py-2 font-black text-[10px] uppercase text-slate-500">TOTAL</td>
-                              <td className="px-3 py-2 font-black text-green-800">{brigadeSales.reduce((s, x) => s + x.total, 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA</td>
-                              <td colSpan={2} />
-                            </tr>
-                          </tfoot>
-                        </table>
+                {/* ── 3. Planning ── */}
+                {section === 'planning' && (<>
+                  <StepTitle num={3} icon={Calendar} title="Planning" hint="Dates, horaires et statut de la brigade" />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <InfoBox l="Journée" v={fmtDate(brigade.date)} />
+                    <InfoBox l="Poste" v={brigade.shift} />
+                    <InfoBox l="Statut" v={brigade.status} />
+                    <InfoBox l="Début" v={fmtDT(startAt)} />
+                    <InfoBox l="Fin" v={fmtDT(endAt)} />
+                    <InfoBox l="Durée" v={durationH ? `${durationH.toFixed(1)} heures` : '—'} />
+                    <InfoBox l="Créée le" v={fmtDT(brigade.createdAt)} />
+                    <InfoBox l="Imprimée le" v={fmtDT(brigade.printedAt)} />
+                    <InfoBox l="Comptabilité" v={accounting ? (accounting.status === 'completed' ? 'Terminée' : 'Brouillon') : 'Non saisie'} />
+                  </div>
+                  {brigade.notes && <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-sm font-bold text-amber-900">📝 {brigade.notes}</div>}
+                </>)}
+
+                {/* ── 4. Départ ── */}
+                {section === 'depart' && (<>
+                  <StepTitle num={4} icon={Database} title="Départ" hint="Index de départ des pistolets et niveaux des cuves à l'ouverture" />
+                  <SubCard title="Niveaux des cuves au départ" icon={Droplets}>
+                    <SimpleTable head={['Cuve', 'Carburant', 'Degrés', 'Litres']}
+                      rows={tankData.map(t => [t.tank.name, t.tank.type, fmtN(t.startDeg), `${fmtN(t.startL)} L`])} />
+                  </SubCard>
+                  <SubCard title="Index de départ des pistolets" icon={Zap}>
+                    <SimpleTable head={['Pompe', 'Pistolet', 'Cuve', 'Index départ']}
+                      rows={nozzleData.map(n => [n.pump?.name || '—', n.nozzle.name, n.tank?.name || '—', fmtN(n.startIdx)])} />
+                  </SubCard>
+                </>)}
+
+                {/* ── 5. Index fin ── */}
+                {section === 'fin' && (<>
+                  <StepTitle num={5} icon={Droplets} title="Index de fin" hint="Index de fin, litres débités, niveaux de fin et écarts des cuves" />
+                  <SubCard title="Pistolets — index et ventes" icon={Zap}>
+                    <SimpleTable head={['Pistolet', 'Carburant', 'Départ', 'Fin', 'Litres', 'Prix', 'Montant']}
+                      rows={nozzleData.map(n => [`${n.pump?.name || ''} · ${n.nozzle.name}`, n.fuelType || '?', fmtN(n.startIdx), fmtN(n.endIdx), `${fmtN(n.liters)} L`, fmtN(n.price), money(n.amount)])}
+                      foot={['TOTAL', '', '', '', `${fmtN(totals.liters)} L`, '', money(totals.computedAmount)]} />
+                  </SubCard>
+                  <SubCard title="Cuves — niveaux de fin et décalage" icon={Droplets}>
+                    <SimpleTable head={['Cuve', 'Départ', 'Fin', 'Baisse cuve', 'Débit pistolets', 'Écart', 'Valeur']}
+                      rows={tankData.map(t => [
+                        `${t.tank.name}${t.measured ? '' : ' (déduit)'}`, `${fmtN(t.startL)} L`, `${fmtN(t.endL)} L`,
+                        `${fmtN(t.cuveDiff)} L`, `${fmtN(t.nozzleDiff)} L`,
+                        t.measured ? `${fmtN(t.difference)} L` : '—', t.measured ? money(t.amount) : '—'])} />
+                  </SubCard>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {totals.byFuel.map(f => (
+                      <div key={f.fuelType} className="rounded-xl bg-white border border-slate-200 p-3">
+                        <p className="text-[9px] font-black uppercase text-slate-400">{f.fuelType}</p>
+                        <p className="font-black text-slate-800 tabular-nums">{fmtN(f.liters)} L</p>
+                        <p className="text-[11px] font-bold text-blue-700 tabular-nums">{money(f.amount)}</p>
                       </div>
-                    </>
-                  )}
-                </motion.div>
-              )}
+                    ))}
+                  </div>
+                </>)}
 
-              {/* ── Historique ── */}
-              {activeSection === 'historique' && (
-                <motion.div key="historique" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-6 space-y-4">
-                  <SectionHeader icon={Activity} label="Historique des Actions" />
-                  <div className="space-y-3">
+                {/* ── 6. Comptabilité ── */}
+                {section === 'comptabilite' && (<>
+                  <StepTitle num={6} icon={DollarSign} title="Comptabilité" hint="Par pompiste : théorique, versements, justifications détaillées et décalage" />
+                  {!accountingRecord && <Empty label="Aucune comptabilité enregistrée pour cette brigade" />}
+                  {pompisteGroups.map(g => {
+                    const list = justifs.filter(j => (j.pompisteId || '_unassigned') === g.pompisteId);
+                    const vers = (brigade.versements || []).filter(v => v.pompisteId === g.pompisteId);
+                    const prod = armoireSaleTotalOf(g.pompisteId);
+                    return (
+                      <div key={g.pompisteId} className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+                        <div className="px-4 py-3 bg-gradient-to-r from-emerald-50 via-white to-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-black text-slate-800 flex items-center gap-2"><User className="w-4 h-4 text-emerald-600" /> {g.name}</p>
+                          <span className={cn('px-2.5 py-1 rounded-full text-[10px] font-black', Math.abs(g.ecart) < 1 ? 'bg-emerald-100 text-emerald-700' : g.ecart > 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700')}>
+                            {Math.abs(g.ecart) < 1 ? 'Équilibré' : g.ecart > 0 ? `Manque ${money(g.ecart)}` : `Excédent ${money(-g.ecart)}`}
+                          </span>
+                        </div>
+                        <div className="p-4 space-y-3">
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                            <Mini l="Carburant" v={money(Math.max(0, g.theoretical - prod))} />
+                            <Mini l="Produits" v={money(prod)} />
+                            <Mini l="À rendre" v={money(g.theoretical)} />
+                            <Mini l="Espèces" v={money(g.collected)} tone="ok" />
+                            <Mini l="Justifié" v={money(g.justified)} />
+                          </div>
+                          {vers.length > 0 && (
+                            <div>
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Versements ({vers.length})</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {vers.map(v => <span key={v.id} className="px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-100 text-[10px] font-black text-emerald-800">{fmtDT(v.at)} · {money(v.amount)}</span>)}
+                              </div>
+                            </div>
+                          )}
+                          {list.length > 0 ? (
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Justifications ({list.length})</p>
+                              {list.map(j => {
+                                const client = clients.find(c => c.id === j.clientId);
+                                const bank = bankAccounts.find(b => b.id === j.bankAccountId);
+                                return (
+                                  <div key={j.id} className={cn('rounded-xl border p-3 space-y-2', justifTone(j.justificationType))}>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-white border border-slate-200">{justifLabel(j.justificationType)}</span>
+                                        <span className="text-xs font-black text-slate-700 truncate">
+                                          {j.justificationType === 'CLIENT' || !j.justificationType ? (client?.name || j.clientName || '—')
+                                            : j.justificationType === 'ACHAT_PRODUIT' ? `${j.productName || 'Produit'} × ${fmtN(j.quantity || 0)}`
+                                            : (j.notes || j.clientName || (j.entryMode === 'DETAIL' ? `${j.operations?.length || 0} opération(s)` : 'Montant global'))}
+                                        </span>
+                                      </div>
+                                      <span className="font-black tabular-nums text-slate-900">{money(j.amount)}</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5 text-[9px] font-black uppercase">
+                                      {bank && <span className="px-2 py-0.5 rounded bg-white text-blue-700 border border-blue-100">🏦 {bank.name}</span>}
+                                      {j.tagType && <span className="px-2 py-0.5 rounded bg-white text-purple-700 border border-purple-100">{j.tagType}</span>}
+                                      {(j.justificationType === 'TPE' || j.justificationType === 'TAG') && <span className="px-2 py-0.5 rounded bg-white text-slate-600 border border-slate-200">{j.entryMode === 'DETAIL' ? 'Opérations détaillées' : 'Montant global'}</span>}
+                                      {j.expenseCategory && <span className="px-2 py-0.5 rounded bg-white text-emerald-700 border border-emerald-100">{j.expenseCategory}</span>}
+                                      {j.supplierName && <span className="px-2 py-0.5 rounded bg-white text-indigo-700 border border-indigo-100">{j.supplierName}</span>}
+                                    </div>
+                                    {j.entryMode === 'DETAIL' && <JustifOpsList type={j.justificationType || ''} operations={j.operations} />}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : <p className="text-[11px] font-bold text-slate-400">Aucune justification</p>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="rounded-2xl p-4 sm:p-5 text-white space-y-2" style={{ background: 'linear-gradient(135deg, #001f5c, #003087)' }}>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#FFB800]">Récapitulatif final</p>
                     {[
-                      brigade.startTimestamp && { time: brigade.startTimestamp, label: 'Brigade créée', color: 'bg-blue-500' },
-                      brigade.status === 'Ouverte' && brigade.startTimestamp && { time: brigade.startTimestamp, label: 'Brigade activée', color: 'bg-green-500' },
-                      brigade.endTimestamp && { time: brigade.endTimestamp, label: 'Brigade clôturée', color: 'bg-slate-500' },
-                      accountingRecord && { time: brigade.endTimestamp || brigade.date, label: `Comptabilité enregistrée (${accountingRecord.status})`, color: 'bg-emerald-500' },
-                    ].filter(Boolean).map((ev: any, i) => (
-                      <div key={i} className="flex items-start gap-3 p-3 bg-white rounded-xl border border-slate-100">
-                        <div className={cn("w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0", ev.color)} />
+                      ['Total théorique', theoTotal], ['Total espèces', collectedTotal], ['TPE', tpeTotal], ['TAG', tagTotal],
+                      ['Crédit client', clientTotal], ['Dépenses', expenseTotal], ['Achats produits', achatTotal], ['Total justifié', justifiedTotal],
+                    ].map(([l, v]) => (
+                      <div key={l as string} className="flex justify-between text-xs font-bold"><span className="text-blue-200">{l}</span><span className="tabular-nums">{money(v as number)}</span></div>
+                    ))}
+                    <div className="flex justify-between pt-2 border-t border-white/20 font-black"><span>Décalage</span><span className={cn('tabular-nums', Math.abs(balance) < 1 ? 'text-emerald-300' : 'text-red-300')}>{money(balance)}</span></div>
+                    {bankByAccount.length > 0 && (
+                      <div className="pt-2 border-t border-white/15 space-y-1">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-blue-200">Encaissé en banque (TPE / TAG)</p>
+                        {bankByAccount.map(([id, a]) => (
+                          <div key={id} className="flex justify-between text-xs font-bold"><span>{bankAccounts.find(b => b.id === id)?.name || 'Compte'}</span><span className="text-emerald-300">+{money(a)}</span></div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>)}
+
+                {/* ── Produits & ventes ── */}
+                {section === 'produits' && (<>
+                  <StepTitle num={7} icon={ShoppingBag} title="Produits & ventes" hint="Ventes et achats de produits (armoires et magasins) pendant la brigade" />
+                  {hasArmoireMoves(brigade)
+                    ? <BrigadeArmoireMovements brigade={brigade} pompistes={pompistes} armoires={armoires} />
+                    : <Empty label="Aucun mouvement d'armoire" />}
+                  {(brigade.magasinProductMoves || []).length > 0 && (
+                    <SubCard title="Mouvements directs en magasin" icon={ShoppingBag}>
+                      <SimpleTable head={['Type', 'Pompiste', 'Produit', 'Qté', 'Prix', 'Total']}
+                        rows={(brigade.magasinProductMoves || []).map(m => [m.kind === 'VENTE' ? 'Vente' : 'Achat', pName(m.pompisteId), m.productName, fmtN(m.quantity), money(m.price), money(m.total)])} />
+                    </SubCard>
+                  )}
+                  {brigadeSales.length > 0 && (
+                    <SubCard title="Ventes boutique pendant la brigade" icon={ShoppingBag}>
+                      <SimpleTable head={['Date', 'Articles', 'Total', 'Statut']}
+                        rows={brigadeSales.map(s => [fmtDT(s.date), String(s.items?.length || 0), money(s.total), s.status])} />
+                    </SubCard>
+                  )}
+                </>)}
+
+                {/* ── Historique ── */}
+                {section === 'historique' && (<>
+                  <StepTitle num={8} icon={Clock} title="Historique" hint="Chronologie de la brigade" />
+                  <div className="relative pl-5 space-y-3 before:absolute before:left-2 before:top-1 before:bottom-1 before:w-0.5 before:bg-slate-200">
+                    {[
+                      brigade.createdAt && { time: brigade.createdAt, label: 'Brigade créée', color: 'bg-blue-500' },
+                      startAt && { time: startAt, label: 'Début de la brigade', color: 'bg-emerald-500' },
+                      ...(brigade.versements || []).map(v => ({ time: v.at, label: `Versement de ${pName(v.pompisteId)} : ${money(v.amount)}`, color: 'bg-amber-500' })),
+                      endAt && { time: endAt, label: 'Fin de la brigade', color: 'bg-slate-500' },
+                      accountingRecord && { time: endAt || brigade.date, label: `Comptabilité enregistrée (${accountingRecord.status === 'completed' ? 'terminée' : 'brouillon'})`, color: 'bg-violet-500' },
+                      brigade.printedAt && { time: brigade.printedAt, label: 'Fiche imprimée', color: 'bg-sky-500' },
+                    ].filter(Boolean).sort((a: any, b: any) => new Date(a.time).getTime() - new Date(b.time).getTime()).map((ev: any, i) => (
+                      <div key={i} className="relative flex items-start gap-3 p-3 bg-white rounded-xl border border-slate-100">
+                        <span className={cn('absolute -left-[18px] top-4 w-3 h-3 rounded-full ring-2 ring-white', ev.color)} />
                         <div>
                           <p className="font-black text-slate-800 text-sm">{ev.label}</p>
-                          <p className="text-[10px] text-slate-400">{new Date(ev.time).toLocaleString('fr-FR')}</p>
+                          <p className="text-[10px] text-slate-400">{fmtDT(ev.time)}</p>
                         </div>
                       </div>
                     ))}
                   </div>
-                </motion.div>
-              )}
-
+                </>)}
+              </motion.div>
             </AnimatePresence>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-yellow-50 border-t border-slate-200 flex gap-3 shrink-0">
-          <button onClick={() => window.print()} className="flex items-center gap-2 px-5 py-2.5 text-[10px] font-black uppercase text-blue-900 border-2 border-blue-900 rounded-xl hover:bg-blue-50 transition-colors bg-white">
+        <div className="px-5 sm:px-6 py-3 bg-white border-t border-slate-200 flex gap-3 shrink-0">
+          <button onClick={() => window.print()} className="flex items-center gap-2 px-5 py-2.5 text-[10px] font-black uppercase text-[#002d87] border-2 border-[#002d87] rounded-xl hover:bg-blue-50 transition-colors bg-white">
             <Printer className="w-4 h-4" /> Imprimer
           </button>
-          <button onClick={onClose} className="flex-1 bg-gradient-to-r from-blue-900 to-blue-800 text-white font-black uppercase tracking-widest rounded-xl py-2.5 text-[10px] hover:shadow-lg transition-all hover:-translate-y-0.5">
-            FERMER
+          <button onClick={onClose} className="flex-1 bg-gradient-to-r from-[#001f5c] to-[#003087] text-white font-black uppercase tracking-widest rounded-xl py-2.5 text-[10px] hover:shadow-lg transition-all">
+            Fermer
           </button>
         </div>
       </motion.div>
-
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #E5E7EB; border-radius: 10px; }
-      `}</style>
     </div>
   );
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const SectionHeader: React.FC<{ icon: React.FC<any>; label: string }> = ({ icon: Icon, label }) => (
+const money = (n: number) => `${(Number.isFinite(n) ? n : 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DA`;
+const fmtN = (n: number) => (Number.isFinite(n) ? n : 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+const fmtDate = (v?: string) => { if (!v) return '—'; const d = new Date(v); return Number.isNaN(d.getTime()) ? v : d.toLocaleDateString('fr-FR'); };
+const fmtDT = (v?: string) => { if (!v) return '—'; const d = new Date(v); return Number.isNaN(d.getTime()) ? v : d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+
+const StepTitle: React.FC<{ num: number; icon: React.FC<any>; title: string; hint?: string }> = ({ num, icon: Icon, title, hint }) => (
   <div className="flex items-center gap-3 pb-3 border-b border-slate-200">
-    <div className="w-8 h-8 rounded-xl bg-blue-900 flex items-center justify-center"><Icon className="w-4 h-4 text-yellow-400" /></div>
-    <h3 className="text-[11px] font-black uppercase tracking-widest text-slate-500">{label}</h3>
+    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #001f5c, #003087)' }}>
+      {num >= 1 && num <= 6 ? <span className="font-black text-[#FFB800]">{num}</span> : <Icon className="w-5 h-5 text-[#FFB800]" />}
+    </div>
+    <div>
+      <h3 className="text-sm font-black uppercase tracking-widest text-[#001f5c]">{num >= 1 && num <= 6 ? `Étape ${num} — ` : ''}{title}</h3>
+      {hint && <p className="text-[11px] font-bold text-slate-400">{hint}</p>}
+    </div>
   </div>
 );
 
+const OVERVIEW_COLORS: Record<string, string> = {
+  blue: 'from-blue-500 to-blue-700', indigo: 'from-indigo-500 to-indigo-700', sky: 'from-sky-500 to-sky-700',
+  amber: 'from-amber-400 to-amber-600', orange: 'from-orange-500 to-orange-700', emerald: 'from-emerald-500 to-emerald-700',
+};
+const OverviewCard: React.FC<{ n: number; title: string; value: string; sub: string; color: string; onClick: () => void }> = ({ n, title, value, sub, color, onClick }) => (
+  <button onClick={onClick} className="text-left rounded-2xl bg-white border border-slate-200 p-4 hover:shadow-lg hover:-translate-y-0.5 transition-all group">
+    <div className="flex items-center gap-2 mb-2">
+      <span className={cn('w-7 h-7 rounded-lg bg-gradient-to-br text-white flex items-center justify-center text-xs font-black', OVERVIEW_COLORS[color])}>{n}</span>
+      <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{title}</span>
+      <ChevronRight className="w-4 h-4 ml-auto text-slate-300 group-hover:text-slate-600" />
+    </div>
+    <p className="font-black text-slate-800 text-sm">{value}</p>
+    <p className="text-[11px] font-bold text-slate-400 truncate">{sub}</p>
+  </button>
+);
+
+const Mini: React.FC<{ l: string; v: string; tone?: 'ok' | 'bad' }> = ({ l, v, tone }) => (
+  <div className={cn('rounded-xl px-2.5 py-2 border', tone === 'ok' ? 'bg-emerald-50 border-emerald-100' : tone === 'bad' ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100')}>
+    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400">{l}</p>
+    <p className={cn('text-xs font-black tabular-nums', tone === 'ok' ? 'text-emerald-700' : tone === 'bad' ? 'text-red-600' : 'text-slate-800')}>{v}</p>
+  </div>
+);
+
+const InfoBox: React.FC<{ l: string; v: string }> = ({ l, v }) => (
+  <div className="rounded-xl bg-white border border-slate-200 p-3">
+    <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">{l}</p>
+    <p className="font-black text-slate-800 text-sm">{v || '—'}</p>
+  </div>
+);
+
+const SubCard: React.FC<{ title: string; icon: React.FC<any>; children: React.ReactNode }> = ({ title, icon: Icon, children }) => (
+  <div className="rounded-2xl bg-white border border-slate-200 overflow-hidden">
+    <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/70 flex items-center gap-2">
+      <Icon className="w-4 h-4 text-[#003087]" />
+      <p className="text-[11px] font-black uppercase tracking-widest text-slate-600">{title}</p>
+    </div>
+    <div className="p-3">{children}</div>
+  </div>
+);
+
+const SimpleTable: React.FC<{ head: string[]; rows: (string | number)[][]; foot?: (string | number)[] }> = ({ head, rows, foot }) => (
+  rows.length === 0 ? <Empty label="Aucune donnée" /> : (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[11px]">
+        <thead><tr className="bg-[#001f5c] text-white">{head.map((h, i) => <th key={i} className={cn('px-2.5 py-2 font-black uppercase text-[9px] tracking-wide', i === 0 ? 'text-left' : 'text-right')}>{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className={cn('border-b border-slate-100', i % 2 ? 'bg-slate-50/60' : '')}>
+              {r.map((c, k) => <td key={k} className={cn('px-2.5 py-1.5 font-bold text-slate-700', k === 0 ? 'text-left' : 'text-right tabular-nums')}>{c}</td>)}
+            </tr>
+          ))}
+        </tbody>
+        {foot && <tfoot><tr className="bg-blue-50 font-black text-[#001f5c]">{foot.map((c, k) => <td key={k} className={cn('px-2.5 py-2', k === 0 ? 'text-left' : 'text-right tabular-nums')}>{c}</td>)}</tr></tfoot>}
+      </table>
+    </div>
+  )
+);
+
 const Empty: React.FC<{ label: string }> = ({ label }) => (
-  <div className="text-center py-12 text-slate-400 text-sm">{label}</div>
+  <div className="text-center py-10 text-slate-400 text-sm font-bold">{label}</div>
 );
 
 export default BrigadeDetailModal;

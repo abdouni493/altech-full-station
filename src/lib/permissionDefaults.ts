@@ -66,6 +66,7 @@ export const GROUPS: GroupDef[] = [
       { id: "Cuves",            label: "Cuves",            icon: Gauge,        actions: ['creer', 'modifier', 'supprimer'] },
       { id: "Pompes",           label: "Pompes",           icon: Wrench,       actions: ['creer', 'modifier', 'supprimer'] },
       { id: "Achats Carburant", label: "Achats Carburant", icon: ShoppingCart, actions: ['creer', 'modifier', 'supprimer', 'imprimer'] },
+      { id: "Ventes Carburant", label: "Ventes Carburant", icon: ShoppingCart, actions: ['creer', 'modifier', 'supprimer', 'imprimer'] },
       { id: "Inventaires",      label: "Inventaire",       icon: Archive,      actions: ['creer', 'modifier', 'supprimer', 'imprimer'] },
     ],
   },
@@ -192,6 +193,7 @@ export function getDefaultPermissions(
     perms["Cuves"]             = { ...viewOnlyPermission };
     perms["Pompes"]            = { ...viewOnlyPermission };
     perms["Achats Carburant"]  = { ...fullPermission };
+    perms["Ventes Carburant"]  = { ...fullPermission };
     perms["Inventaires"]       = { ...fullPermission };
     perms["Clients"]           = { ...fullPermission };
     perms["Fournisseurs"]      = { ...fullPermission };

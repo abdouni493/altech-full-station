@@ -47,7 +47,7 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   [CAISSE_PART_ID.cafeteria]: 'Caisse Cafétéria',
   get [CAISSE_PART_ID.lavage]() { return `Caisse ${MODULES.lavage.label}`; },
   get [CAISSE_PART_ID.magasin2]() { return `Caisse ${MODULES.magasin2.label}`; },
-  [CAISSE_PART_ID.carwash]: 'Caisse Lavage & Vidange',
+  [CAISSE_PART_ID.carwash]: 'Caisse Lavage & Réparation',
 };
 
 const isCashAccount = (id?: string): boolean => !!id && CASH_ACCOUNT_IDS.includes(id);
@@ -89,7 +89,7 @@ export const TREASURY_PART_LABEL: Record<TreasuryPartKey, string> = {
   // Noms choisis dans Paramètres → Magasins, lus à la volée.
   get lavage() { return MODULES.lavage.label; },
   get magasin2() { return MODULES.magasin2.label; },
-  carwash: 'Lavage & Vidange',
+  carwash: 'Lavage & Réparation',
   systeme: 'Finance',
 };
 

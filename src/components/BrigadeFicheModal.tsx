@@ -1,4 +1,5 @@
 import React, { useMemo, useRef } from "react";
+import { JustifOpsList } from "./brigade/JustifOperationsEditor";
 import ReactDOM from "react-dom";
 import { motion } from "motion/react";
 import { X, Printer, Download } from "lucide-react";
@@ -294,12 +295,26 @@ const BrigadeFicheModal: React.FC<Props> = ({
                       </tr></thead>
                       <tbody>
                         {justifs.map(j => (
-                          <tr key={j.id} className="border-b border-slate-100">
-                            <td className="px-2 py-1 font-black border border-slate-200">{j.justificationType || 'CLIENT'}{j.paymentMode ? ` (${j.paymentMode})` : ''}</td>
-                            <td className="px-2 py-1 border border-slate-200">{j.clientName || '—'}</td>
-                            <td className="px-2 py-1 tabular-nums border border-slate-200">{(j.liters || 0).toFixed(2)}</td>
+                          <React.Fragment key={j.id}>
+                          <tr className="border-b border-slate-100">
+                            <td className="px-2 py-1 font-black border border-slate-200">{j.justificationType || 'CLIENT'}{j.paymentMode ? ` (${j.paymentMode})` : ''}{j.tagType ? ` · ${j.tagType}` : ''}</td>
+                            <td className="px-2 py-1 border border-slate-200">
+                              {j.clientName || j.notes || '—'}
+                              {(j.justificationType === 'TPE' || j.justificationType === 'TAG') && (
+                                <span className="ml-1 text-[9px] font-black text-slate-400 uppercase">
+                                  · {j.entryMode === 'DETAIL' ? `${j.operations?.length || 0} opération(s)` : 'Montant global'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1 tabular-nums border border-slate-200">{(j.entryMode === 'DETAIL' ? (j.operations || []).reduce((a, o) => a + (o.quantity || 0), 0) : (j.liters || 0)).toFixed(2)}</td>
                             <td className="px-2 py-1 font-black text-slate-700 border border-slate-200">{fmt(j.amount)} DA</td>
                           </tr>
+                          {j.entryMode === 'DETAIL' && (j.operations || []).length > 0 && (
+                            <tr><td colSpan={4} className="px-2 py-1.5 border border-slate-200 bg-slate-50/50">
+                              <JustifOpsList type={j.justificationType || ''} operations={j.operations} />
+                            </td></tr>
+                          )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </table>

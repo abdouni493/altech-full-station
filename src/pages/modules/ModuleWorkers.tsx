@@ -55,7 +55,7 @@ export default function ModuleWorkers({ moduleKey }: { moduleKey: ModuleKey }) {
   const filtered = workers.filter(w => {
     const matchQ = matchesSearch(search, w.name, w.roleName, w.phone, w.cin);
     const kind = w.workerKind || 'both';
-    // A polyvalent employee belongs to both the "lavage" and the "vidange" filters.
+    // A polyvalent employee belongs to both the "lavage" and the "réparation" filters.
     const matchKind = !hasKinds || kindFilter === 'all' || kind === kindFilter || kind === 'both';
     return matchQ && matchKind;
   });
@@ -511,7 +511,7 @@ function WorkerForm({ moduleKey, initial, onClose }: { moduleKey: ModuleKey; ini
                     </p>
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       {k === 'lavage' ? 'Uniquement les lavages'
-                        : k === 'reparation' ? 'Uniquement les vidanges'
+                        : k === 'reparation' ? 'Uniquement les réparations'
                           : 'Proposé sur les deux'}
                     </p>
                   </button>
@@ -1036,8 +1036,8 @@ function PaymentModal({ moduleKey, worker, onClose }: { moduleKey: ModuleKey; wo
       id: r.id,
       label: `${r.ref} — ${r.clientName}`,
       sublabel: mine.length
-        ? mine.map(p => `${p.kind === 'lavage' ? 'Lavage' : 'Vidange'} : ${p.label}`).join(' · ')
-        : (r.kind === 'lavage' ? 'Lavage' : r.kind === 'reparation' ? 'Vidange' : 'Lavage + Vidange'),
+        ? mine.map(p => `${p.kind === 'lavage' ? 'Lavage' : 'Réparation'} : ${p.label}`).join(' · ')
+        : (r.kind === 'lavage' ? 'Lavage' : r.kind === 'reparation' ? 'Réparation' : 'Lavage + Réparation'),
       date: r.date,
       base: baseFor(r, worker.id),
       share: workerShareOf(r, worker.id, rate),

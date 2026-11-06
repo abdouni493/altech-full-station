@@ -460,7 +460,7 @@ function buildBizState() {
   ];
   const cafTables = [1, 2, 3, 4, 5, 6].map(n => ({ id: `caf-demo-tbl-${n}`, name: `Table ${n}`, seats: n <= 4 ? 4 : 2, createdAt: T(30) }));
 
-  // Magasin 1 (lavage / vidange)
+  // Magasin 1 (lavage / réparation)
   const lavCats: [string, string][] = [['lav-demo-cat-1', 'Huiles'], ['lav-demo-cat-2', 'Filtres'], ['lav-demo-cat-3', 'Gaz & consignés']];
   const lavProducts = [
     bizProduct('lav-demo-p1', 'Huile 15W40 — bidon 5 L', lavCats[0], 2400, 3200, 30, 6),
@@ -485,7 +485,7 @@ function buildBizState() {
   ];
   const lavWorkers = [
     bizWorker('lav-demo-wrk-1', 'Adel Kaci', 'Laveur', 0, { salaryType: 'pourcentage', percentage: 30, workerKind: 'lavage' }),
-    bizWorker('lav-demo-wrk-2', 'Toufik Rahmani', 'Mécanicien vidange', 40000, { workerKind: 'reparation' }),
+    bizWorker('lav-demo-wrk-2', 'Toufik Rahmani', 'Mécanicien réparation', 40000, { workerKind: 'reparation' }),
   ];
 
   // Magasin 2
@@ -502,7 +502,7 @@ function buildBizState() {
     bizSale('m2', 3, 4, [{ p: m2Products[3], q: 1 }, { p: m2Products[0], q: 1 }]),
   ];
 
-  // Lavage & Vidange (partie de service)
+  // Lavage & Réparation (partie de service)
   const cwCats: [string, string][] = [['cw-demo-cat-1', 'Huiles moteur'], ['cw-demo-cat-2', 'Filtres'], ['cw-demo-cat-3', 'Produits lavage']];
   const cwProducts = [
     bizProduct('cw-demo-p1', 'Huile 10W40 — 5 L', cwCats[0], 2600, 3400, 20, 5),
@@ -524,7 +524,7 @@ function buildBizState() {
   ];
   const cwWorkers = [
     bizWorker('cw-demo-wrk-1', 'Adel Kaci', 'Laveur', 0, { salaryType: 'pourcentage', percentage: 30, workerKind: 'lavage' }),
-    bizWorker('cw-demo-wrk-2', 'Toufik Rahmani', 'Mécanicien vidange', 40000, { workerKind: 'reparation' }),
+    bizWorker('cw-demo-wrk-2', 'Toufik Rahmani', 'Mécanicien réparation', 40000, { workerKind: 'reparation' }),
     bizWorker('cw-demo-wrk-3', 'Imad Bensalem', 'Polyvalent', 1500, { salaryType: 'jour', workDays: [0, 1, 2, 3, 4, 6], workerKind: 'both' }),
   ];
   const rep = (i: number, n: number, kind: 'reparation' | 'lavage' | 'mixte', cli: any, car: any, prest: { kind: 'reparation' | 'lavage'; label: string; amount: number; w: string[] }[], used: { p: any; q: number }[], status: 'pending' | 'finalized', paidRatio = 1) => {
@@ -535,7 +535,7 @@ function buildBizState() {
     const paid = status === 'finalized' ? round2(total * paidRatio) : 0;
     return {
       id: `cw-demo-rep-${i}`, ref: `INT-${String(200 + i)}`, kind, clientId: cli?.id, clientName: cli?.name || 'Client de passage', car,
-      serviceTotal, prestations, usedProducts, problem: kind === 'lavage' ? undefined : 'Vidange périodique',
+      serviceTotal, prestations, usedProducts, problem: kind === 'lavage' ? undefined : 'Réparation périodique',
       subtotal: total, total, paid, rest: round2(total - paid), status, date: T(n, 9 + i % 6),
       finalizedAt: status === 'finalized' ? T(n, 11 + i % 6) : undefined, outDate: status === 'finalized' ? T(n, 11 + i % 6) : undefined,
       workers: [...new Set(prest.flatMap(x => x.w))], createdBy: DEMO_ADMIN.name,
@@ -544,15 +544,15 @@ function buildBizState() {
   };
   const cwReparations = [
     rep(1, 0, 'lavage', null, { name: 'Golf 7', marque: 'Volkswagen', immatriculation: '11223-116-19' }, [{ kind: 'lavage', label: 'Lavage complet', amount: 800, w: ['cw-demo-wrk-1'] }], [], 'pending'),
-    rep(2, 0, 'reparation', cwClients[0], cwCars[0], [{ kind: 'reparation', label: 'Vidange + filtre', amount: 1000, w: ['cw-demo-wrk-2'] }], [{ p: cwProducts[0], q: 1 }, { p: cwProducts[2], q: 1 }], 'pending'),
-    rep(3, 1, 'mixte', cwClients[1], cwCars[2], [{ kind: 'reparation', label: 'Vidange', amount: 1200, w: ['cw-demo-wrk-2'] }, { kind: 'lavage', label: 'Lavage extérieur', amount: 600, w: ['cw-demo-wrk-1'] }], [{ p: cwProducts[1], q: 1 }, { p: cwProducts[2], q: 1 }], 'finalized', 0.5),
+    rep(2, 0, 'reparation', cwClients[0], cwCars[0], [{ kind: 'reparation', label: 'Réparation + filtre', amount: 1000, w: ['cw-demo-wrk-2'] }], [{ p: cwProducts[0], q: 1 }, { p: cwProducts[2], q: 1 }], 'pending'),
+    rep(3, 1, 'mixte', cwClients[1], cwCars[2], [{ kind: 'reparation', label: 'Réparation', amount: 1200, w: ['cw-demo-wrk-2'] }, { kind: 'lavage', label: 'Lavage extérieur', amount: 600, w: ['cw-demo-wrk-1'] }], [{ p: cwProducts[1], q: 1 }, { p: cwProducts[2], q: 1 }], 'finalized', 0.5),
     rep(4, 2, 'lavage', cwClients[2], cwCars[1], [{ kind: 'lavage', label: 'Lavage intérieur + extérieur', amount: 1000, w: ['cw-demo-wrk-3'] }], [{ p: cwProducts[5], q: 1 }], 'finalized'),
     rep(5, 4, 'reparation', cwClients[0], cwCars[0], [{ kind: 'reparation', label: 'Changement filtre à air', amount: 500, w: ['cw-demo-wrk-3'] }], [{ p: cwProducts[3], q: 1 }], 'finalized'),
     rep(6, 6, 'lavage', null, { name: 'Picanto', marque: 'Kia', immatriculation: '55443-118-19' }, [{ kind: 'lavage', label: 'Lavage express', amount: 400, w: ['cw-demo-wrk-1'] }], [], 'finalized'),
   ];
   const cwPayRequests = [
     { id: 'cw-demo-req-1', ref: 'DE-001', kind: 'lavage', clientName: 'Client de passage', car: { name: 'Polo', marque: 'Volkswagen', immatriculation: '99887-119-19' }, amount: 700, description: 'Lavage extérieur', workerId: 'cw-demo-wrk-1', workerName: 'Adel Kaci', status: 'pending', createdAt: T(0, 10), createdBy: 'Adel Kaci' },
-    { id: 'cw-demo-req-2', ref: 'DE-002', kind: 'reparation', clientId: 'cw-demo-cli-3', clientName: 'Mohamed S.', car: cwCars[1], amount: 1500, description: 'Vidange sans fourniture', workerId: 'cw-demo-wrk-2', workerName: 'Toufik Rahmani', status: 'pending', createdAt: T(0, 11), createdBy: 'Toufik Rahmani' },
+    { id: 'cw-demo-req-2', ref: 'DE-002', kind: 'reparation', clientId: 'cw-demo-cli-3', clientName: 'Mohamed S.', car: cwCars[1], amount: 1500, description: 'Réparation sans fourniture', workerId: 'cw-demo-wrk-2', workerName: 'Toufik Rahmani', status: 'pending', createdAt: T(0, 11), createdBy: 'Toufik Rahmani' },
     { id: 'cw-demo-req-3', ref: 'DE-003', kind: 'lavage', clientName: 'Client de passage', car: { name: 'Accent', marque: 'Hyundai', immatriculation: '33221-112-19' }, amount: 500, workerId: 'cw-demo-wrk-1', workerName: 'Adel Kaci', status: 'collected', createdAt: T(1, 15), collectedAt: T(1, 16), collectedBy: DEMO_ADMIN.name },
   ];
   const cwSales = [
@@ -563,7 +563,7 @@ function buildBizState() {
   cwModule.reparations = cwReparations;
   cwModule.payRequests = cwPayRequests;
   cwModule.messageTemplates = [
-    { id: 'cw-demo-tpl-1', name: 'Rappel vidange', body: 'Bonjour {client}, la prochaine vidange de votre {voiture} approche. Station Altech.', createdAt: T(30) },
+    { id: 'cw-demo-tpl-1', name: 'Rappel réparation', body: 'Bonjour {client}, la prochaine réparation de votre {voiture} approche. Station Altech.', createdAt: T(30) },
   ];
 
   const empty = bizModule('magasin2', { categories: [], products: [], clients: [], suppliers: [], workers: [], sales: [], purchases: [], expenses: [] });

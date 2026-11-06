@@ -36,7 +36,7 @@ const INCLUDE_LABEL: { key: keyof ZakatConfig['include']; label: string; hint: s
   { key: 'stockCafeteria', label: 'Stock Cafétéria', hint: 'Catalogue + comptoir' },
   { key: 'stockLavage', label: 'Stock Magasin', hint: 'Catalogue de la partie' },
   { key: 'stockMagasin2', label: 'Stock Magasin 2', hint: 'Catalogue du second magasin' },
-  { key: 'stockCarwash', label: 'Stock Lavage & Vidange', hint: 'Catalogue de la partie lavage' },
+  { key: 'stockCarwash', label: 'Stock Lavage & Réparation', hint: 'Catalogue de la partie lavage' },
   { key: 'creances', label: 'Créances clients', hint: 'Ventes à crédit récupérables' },
   { key: 'dettesFournisseurs', label: 'Dettes fournisseurs (déduites)', hint: 'Retranchées de l\'assiette' },
 ];

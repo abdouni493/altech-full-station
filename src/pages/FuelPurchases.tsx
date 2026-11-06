@@ -39,6 +39,8 @@ import { appointmentOf, apptTone, apptLabel } from '../lib/paymentAppointments';
 import {
   deleteFuelPurchase, tankDeltasBetween, tankDeltasOf, describeTankDeltas, litersOf,
 } from '../lib/fuelPurchase';
+import TaxesEditor from '../components/TaxesEditor';
+import { AppliedTax, computeTaxes, sumTaxes, taxLabel } from '../lib/taxes';
 import { supplierBalance, supplierStats, purchaseRest } from '../lib/supplierDebt';
 
 const todayISO = () => new Date().toISOString().split('T')[0];
@@ -167,6 +169,7 @@ export default function FuelPurchases() {
         total: i.total,
       })),
       subtotal: p.subtotal, reduction: p.discountAmount, tva: p.tvaAmount,
+      taxes: (p.extraTaxes || []).map(t => ({ label: taxLabel(t), amount: t.amount })),
       total: p.total, paid: p.amountPaid, rest: p.rest,
       payments: (p.payments || []).map(pay => ({
         label: accountLabel(pay.accountId, bankAccounts),
@@ -412,6 +415,7 @@ function PurchaseForm({ initial, onClose }: { initial: Purchase | null; onClose:
 
   const [tvaActive, setTvaActive] = useState(!!stored?.tvaActive);
   const [tvaRate, setTvaRate] = useState(String(stored?.tvaRate ?? 19));
+  const [extraTaxesRaw, setExtraTaxes] = useState<AppliedTax[]>(stored?.extraTaxes || []);
   const [discountOn, setDiscountOn] = useState(!!stored?.discountAmount);
   const [discountType, setDiscountType] = useState<'percent' | 'amount'>(stored?.discountType || 'percent');
   const [discountValue, setDiscountValue] = useState(String(stored?.discountValue ?? ''));
@@ -441,7 +445,9 @@ function PurchaseForm({ initial, onClose }: { initial: Purchase | null; onClose:
       : Math.min(subtotal, Number(discountValue) || 0);
   const afterDiscount = Math.max(0, subtotal - discountAmount);
   const tvaAmount = tvaActive ? afterDiscount * (Number(tvaRate) || 0) / 100 : 0;
-  const total = afterDiscount + tvaAmount;
+  const extraTaxes = useMemo(() => computeTaxes(afterDiscount, extraTaxesRaw), [afterDiscount, extraTaxesRaw]);
+  const extraTaxesAmount = sumTaxes(extraTaxes);
+  const total = afterDiscount + tvaAmount + extraTaxesAmount;
   const paid = pays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   // Une facture réglée au dinar près est réglée : les arrondis de TVA laissaient
   // un reste de l'ordre du millième, qui suffisait à faire figurer l'achat dans
@@ -564,6 +570,7 @@ function PurchaseForm({ initial, onClose }: { initial: Purchase | null; onClose:
       discountValue: discountOn ? Number(discountValue) || 0 : undefined,
       discountAmount,
       tvaActive, tvaRate: Number(tvaRate) || 0, tvaAmount,
+      extraTaxes, extraTaxesAmount,
       total,
       amountPaid: paid,
       rest,
@@ -843,8 +850,8 @@ function PurchaseForm({ initial, onClose }: { initial: Purchase | null; onClose:
         </FormSection>
 
         {/* 3. Total, TVA, remise */}
-        <FormSection step={3} icon={Percent} title="Total, TVA & remise"
-          hint="La TVA est appliquée après la remise">
+        <FormSection step={3} icon={Percent} title="Total, TVA, taxes & remise"
+          hint="La TVA et les autres taxes sont appliquées après la remise et ajoutées au total">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div className="space-y-3">
               {/* Remise */}
@@ -875,33 +882,20 @@ function PurchaseForm({ initial, onClose }: { initial: Purchase | null; onClose:
                 )}
               </div>
 
-              {/* TVA */}
-              <div className={`rounded-2xl border p-4 space-y-3 transition-colors ${tvaActive ? 'bg-[#eef3fc] border-[#003087]/20' : 'bg-slate-50 border-slate-200'}`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-black text-slate-700">TVA</p>
-                    <p className="text-xs text-slate-400">Appliquée après la remise</p>
-                  </div>
-                  <Switch checked={tvaActive} onChange={setTvaActive} />
-                </div>
-                {tvaActive && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    <Field label="Taux de TVA (%)">
-                      <Input type="number" step="0.01" inputMode="decimal" value={tvaRate}
-                        onChange={e => setTvaRate(e.target.value)} className="text-right" />
-                    </Field>
-                    <Field label="Montant de la TVA">
-                      <StaticField tone="primary">{money(tvaAmount)}</StaticField>
-                    </Field>
-                  </div>
-                )}
-              </div>
+              {/* TVA + autres taxes (modèles enregistrés) */}
+              <TaxesEditor base={afterDiscount}
+                tvaActive={tvaActive} onTvaActive={setTvaActive}
+                tvaRate={tvaRate} onTvaRate={setTvaRate}
+                taxes={extraTaxes} onTaxes={setExtraTaxes} />
             </div>
 
             <div className="rounded-2xl bg-[#001f5c] text-white p-5 sm:p-6 space-y-3 text-sm self-start w-full">
               <div className="flex justify-between"><span className="text-blue-200">Sous-total</span><span className="font-bold tabular-nums">{money(subtotal)}</span></div>
               <div className="flex justify-between"><span className="text-blue-200">Remise</span><span className="font-bold tabular-nums text-[#FFB800]">− {money(discountAmount)}</span></div>
               <div className="flex justify-between"><span className="text-blue-200">TVA {tvaActive ? `(${tvaRate}%)` : ''}</span><span className="font-bold tabular-nums">{money(tvaAmount)}</span></div>
+              {extraTaxes.map(t => (
+                <div key={t.id} className="flex justify-between"><span className="text-violet-200">{taxLabel(t)}</span><span className="font-bold tabular-nums">+ {money(t.amount)}</span></div>
+              ))}
               <div className="flex flex-wrap gap-2 justify-between items-baseline pt-3 border-t border-white/20">
                 <span className="font-semibold">Total à payer</span>
                 <span className="text-2xl sm:text-3xl font-black tabular-nums text-[#FFB800]">{money(total)}</span>
@@ -1136,6 +1130,9 @@ function PurchaseDetail({ purchase, onClose, onPrint }: {
           <div className="rounded-xl bg-slate-50 p-3 text-center"><p className="text-[10px] uppercase font-bold text-slate-400">Sous-total</p><p className="font-black text-slate-700 tabular-nums text-sm">{money(purchase.subtotal ?? purchase.total)}</p></div>
           <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-[10px] uppercase font-bold text-slate-400">Remise</p><p className="font-black text-amber-600 tabular-nums text-sm">{money(purchase.discountAmount || 0)}</p></div>
           <div className="rounded-xl bg-slate-50 p-3 text-center"><p className="text-[10px] uppercase font-bold text-slate-400">TVA</p><p className="font-black text-slate-700 tabular-nums text-sm">{money(purchase.tvaAmount || 0)}</p></div>
+          {(purchase.extraTaxes || []).map(t => (
+            <div key={t.id} className="rounded-xl bg-violet-50 p-3 text-center"><p className="text-[10px] uppercase font-bold text-violet-400">{taxLabel(t)}</p><p className="font-black text-violet-700 tabular-nums text-sm">{money(t.amount)}</p></div>
+          ))}
           <div className="rounded-xl bg-emerald-50 p-3 text-center"><p className="text-[10px] uppercase font-bold text-slate-400">Payé</p><p className="font-black text-emerald-600 tabular-nums text-sm">{money(purchase.amountPaid)}</p></div>
           <div className="rounded-xl bg-red-50 p-3 text-center"><p className="text-[10px] uppercase font-bold text-slate-400">Reste</p><p className="font-black text-red-600 tabular-nums text-sm">{money(purchase.rest)}</p></div>
         </div>

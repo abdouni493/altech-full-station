@@ -1,5 +1,5 @@
 /**
- * ─── Demandes d'encaissement (Lavage & Vidange) ──────────────────────────────
+ * ─── Demandes d'encaissement (Lavage & Réparation) ──────────────────────────────
  * Un laveur qui n'encaisse pas lui-même envoie ici, à l'administrateur ou à
  * l'employé de caisse, le montant qu'un client doit payer, avec le nom du client
  * et les informations de son véhicule. La caisse voit la liste des demandes en
@@ -26,7 +26,7 @@ import { ClientCarPicker, PASSAGE_LABEL } from './ClientCarPicker';
 
 const KIND_META = {
   lavage: { label: 'Lavage', icon: Sparkles, grad: 'linear-gradient(135deg,#0369a1,#0ea5e9)', ring: 'ring-sky-300' },
-  reparation: { label: 'Vidange', icon: Wrench, grad: 'linear-gradient(135deg,#c2410c,#f97316)', ring: 'ring-orange-300' },
+  reparation: { label: 'Réparation', icon: Wrench, grad: 'linear-gradient(135deg,#c2410c,#f97316)', ring: 'ring-orange-300' },
 } as const;
 
 const STATUS_META: Record<BizPayRequest['status'], { label: string; tone: any }> = {
@@ -79,7 +79,7 @@ export default function ModuleEncaissements({ moduleKey }: { moduleKey: ModuleKe
   /**
    * ─── LA VALIDATION DE L'ADMIN CRÉE L'INTERVENTION ─────────────────────────
    * Quand c'est l'administrateur qui valide, la demande devient une vraie
-   * intervention finalisée et payée dans Lavage & Vidange — exactement comme
+   * intervention finalisée et payée dans Lavage & Réparation — exactement comme
    * si elle avait été saisie à la main : elle compte dans le chiffre, la caisse
    * de la partie et la paie au pourcentage de l'employé. Pas de produits : le
    * stock ne bouge pas. Une demande déjà liée ne crée jamais un doublon.
@@ -132,7 +132,7 @@ export default function ModuleEncaissements({ moduleKey }: { moduleKey: ModuleKe
   const collect = (r: BizPayRequest) => {
     validate(r, new Date().toISOString());
     toast.success(isAdmin
-      ? `Demande ${r.ref} validée — ${KIND_META[r.kind || 'lavage'].label} créé dans Lavage & Vidange`
+      ? `Demande ${r.ref} validée — ${KIND_META[r.kind || 'lavage'].label} créé dans Lavage & Réparation`
       : `Demande ${r.ref} validée — ${money(r.amount)} encaissés`);
   };
 
@@ -349,7 +349,7 @@ export default function ModuleEncaissements({ moduleKey }: { moduleKey: ModuleKe
         message={`Supprimer la demande ${toDelete?.ref} ?`} onConfirm={del} onCancel={() => setToDelete(null)} />
       <Confirm open={confirmAll} danger={false} confirmLabel="Tout valider"
         title="Valider toutes les demandes"
-        message={`Marquer ${stats.pending} demande(s) comme encaissée(s), pour un total de ${money(stats.pendingAmount)} ?${isAdmin ? ' Chacune sera créée comme intervention finalisée dans Lavage & Vidange.' : ''} L'alerte du menu disparaîtra.`}
+        message={`Marquer ${stats.pending} demande(s) comme encaissée(s), pour un total de ${money(stats.pendingAmount)} ?${isAdmin ? ' Chacune sera créée comme intervention finalisée dans Lavage & Réparation.' : ''} L'alerte du menu disparaîtra.`}
         onConfirm={collectAll} onCancel={() => setConfirmAll(false)} />
     </div>
   );
@@ -357,9 +357,9 @@ export default function ModuleEncaissements({ moduleKey }: { moduleKey: ModuleKe
 
 /**
  * ─── LA DEMANDE, EN TROIS GESTES ──────────────────────────────────────────────
- * Lavage ou vidange, le montant, puis le client — cherché dans la liste qui
+ * Lavage ou réparation, le montant, puis le client — cherché dans la liste qui
  * s'ouvre au premier clic, ou créé sur place avec la même fiche que dans
- * Lavage & Vidange. Le créateur est l'utilisateur connecté, quel qu'il soit.
+ * Lavage & Réparation. Le créateur est l'utilisateur connecté, quel qu'il soit.
  */
 function RequestForm({
   moduleKey, defaultWorkerId, defaultWorkerName, creatorName, onClose,
@@ -418,7 +418,7 @@ function RequestForm({
           </button>
         </>}>
         <div className="space-y-4">
-          {/* ── 1 · Lavage ou vidange ─────────────────────────────────────── */}
+          {/* ── 1 · Lavage ou réparation ─────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3">
             {(['lavage', 'reparation'] as const).map(k => {
               const m = KIND_META[k]; const Icon = m.icon; const on = kind === k;
@@ -482,12 +482,12 @@ function RequestForm({
 
           <Field label="Détail de la prestation">
             <Textarea value={description} onChange={e => setDescription(e.target.value)}
-              placeholder={kind === 'lavage' ? 'Ex: lavage complet + aspiration' : 'Ex: vidange 5W40 + filtre à huile'} />
+              placeholder={kind === 'lavage' ? 'Ex: lavage complet + aspiration' : 'Ex: réparation 5W40 + filtre à huile'} />
           </Field>
         </div>
       </Modal>
 
-      {/* La même fiche client que dans Lavage & Vidange. */}
+      {/* La même fiche client que dans Lavage & Réparation. */}
       <ContactModal biz={biz} coll="clients" open={showClient} onClose={() => setShowClient(false)}
         onSaved={c => { setClientId(c.id); if ((c.cars || []).length === 1) setCar({ ...c.cars![0] }); }} />
     </>

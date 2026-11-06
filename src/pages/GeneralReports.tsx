@@ -60,7 +60,7 @@ const SECTIONS: { id: ActiveKey; label: string; icon: React.ElementType; hint: s
   { id: 'cafeteria', label: 'Cafétéria', icon: Coffee, hint: 'Rapport détaillé' },
   { id: 'lavage', get label() { return MODULES.lavage.label; }, icon: Store, hint: 'Rapport détaillé' },
   { id: 'magasin2', get label() { return MODULES.magasin2.label; }, icon: Store, hint: 'Rapport détaillé' },
-  { id: 'carwash', label: 'Lavage & Vidange', icon: Store, hint: 'Rapport détaillé' },
+  { id: 'carwash', label: 'Lavage & Réparation', icon: Store, hint: 'Rapport détaillé' },
 ];
 
 /** Les parties commerciales réellement utilisées (second magasin s'il existe). */
@@ -540,7 +540,7 @@ export default function GeneralReports() {
       amount: b.revenue, amountTone: 'green',
     }));
 
-    // ── Travaux lavage / vidange + sessions cafétéria ──
+    // ── Travaux lavage / réparation + sessions cafétéria ──
     const workRows: DetailRow[] = [];
     reports.lavage.sales.filter(s => s.kind !== 'Vente').forEach(s => workRows.push({
       id: `work-${s.id}`, date: s.date,

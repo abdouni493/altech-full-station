@@ -263,7 +263,7 @@ function SessionRow({ s }: { s: WorkforceWorker['sessions'][number]; key?: React
   );
 }
 
-// ─── Work detail (lavage / vidange) ───────────────────────────────────────
+// ─── Work detail (lavage / réparation) ───────────────────────────────────────
 function WorkRow({ w, rate }: { w: WorkforceWorker['works'][number]; rate: number; key?: React.Key }) {
   const [open, setOpen] = useState(false);
   return (
@@ -283,7 +283,7 @@ function WorkRow({ w, rate }: { w: WorkforceWorker['works'][number]; rate: numbe
             ))}
             {w.prestations.every(p => !p.mine) && <span className="text-xs text-slate-400 italic">Intervention entière</span>}
             {/* Le stock sorti se voit AVANT d'ouvrir : c'est ce qui distingue une
-                vidange d'un simple lavage, et ce qu'on vient vérifier. */}
+                réparation d'un simple lavage, et ce qu'on vient vérifier. */}
             {w.products.length > 0 && <span className="badge badge-neutral">{w.products.length} produit(s)</span>}
           </div>
         </td>
@@ -526,9 +526,9 @@ function WorkerCard({ w }: { w: WorkforceWorker; key?: React.Key }) {
                 </Section>
               )}
 
-              {/* Works (lavage / vidange) */}
+              {/* Works (lavage / réparation) */}
               {w.works.length > 0 && (
-                <Section title="Travaux assignés — lavages & vidanges" icon={Car} count={w.works.length}>
+                <Section title="Travaux assignés — lavages & réparations" icon={Car} count={w.works.length}>
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-2">
                     <Chip label="Travaux" value={String(w.worksCount)} tone="blue" />
                     <Chip label="Montant facturé" value={money(w.worksAmount)} />
@@ -622,7 +622,7 @@ export default function WorkforceView({ report }: { report: WorkforceReport }) {
         <Kpi icon={CalendarMinus} tone="red" label="Absences / retenues" value={money(t.absences)} />
         <Kpi icon={Target} tone="purple" label="Brigades couvertes" value={String(t.brigades)} sub={`${liters(t.liters)} vendus`} />
         <Kpi icon={Clock} tone="cyan" label="Sessions de travail" value={String(t.sessions)} />
-        <Kpi icon={Car} tone="blue" label="Travaux lavage / vidange" value={String(t.works)} sub={money(t.worksAmount)} />
+        <Kpi icon={Car} tone="blue" label="Travaux lavage / réparation" value={String(t.works)} sub={money(t.worksAmount)} />
         <Kpi icon={Percent} tone={t.dueNow > 0 ? 'red' : 'green'} label="Parts employés à régler" value={money(t.dueNow)} sub={`${money(t.earned)} générés`} />
       </div>
 
@@ -744,7 +744,7 @@ export default function WorkforceView({ report }: { report: WorkforceReport }) {
  *   • la base retenue pour son pourcentage et sa part, travail par travail ;
  *   • ce qui lui a déjà été réglé, ce qui reste à lui payer, et ce qui n'est pas
  *     encore payable parce que l'intervention n'est pas finalisée ;
- *   • la répartition de son travail par nature (lavage / vidange) et par
+ *   • la répartition de son travail par nature (lavage / réparation) et par
  *     prestation ;
  *   • ses salaires, acomptes et absences de la même période.
  *
@@ -756,7 +756,7 @@ export default function WorkforceView({ report }: { report: WorkforceReport }) {
 /** Ce qu'un employé de service a produit sur la période, prestation comprise. */
 function serviceStats(w: WorkforceWorker) {
   const byKind: Record<string, { count: number; amount: number }> = {
-    Lavage: { count: 0, amount: 0 }, Vidange: { count: 0, amount: 0 },
+    Lavage: { count: 0, amount: 0 }, 'Réparation': { count: 0, amount: 0 },
   };
   const byLabel = new Map<string, { key: string; label: string; kindLabel: string; count: number; amount: number }>();
   let products = 0, discounts = 0, clientRest = 0;
@@ -824,7 +824,7 @@ function ServiceWorkerRow({ w, open, onToggle }: {
           <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
             <Briefcase className="w-3 h-3" /> {w.worksCount} travail(aux)
             <span>•</span> 🧽 {s.byKind.Lavage.count} lavage(s)
-            <span>•</span> 🔧 {s.byKind.Vidange.count} vidange(s)
+            <span>•</span> 🔧 {s.byKind['Réparation'].count} réparation(s)
             <span>•</span> {w.payMode}
           </p>
         </div>
@@ -913,9 +913,9 @@ function ServiceWorkerRow({ w, open, onToggle }: {
                       <p className="text-[11px] font-bold text-cyan-600 tabular-nums">{money(s.byKind.Lavage.amount)}</p>
                     </div>
                     <div className="rounded-xl bg-violet-50 px-3 py-2.5">
-                      <p className="text-[10px] uppercase font-black text-violet-700/70">🔧 Vidanges</p>
-                      <p className="font-black tabular-nums text-violet-700">{s.byKind.Vidange.count}</p>
-                      <p className="text-[11px] font-bold text-violet-600 tabular-nums">{money(s.byKind.Vidange.amount)}</p>
+                      <p className="text-[10px] uppercase font-black text-violet-700/70">🔧 Réparations</p>
+                      <p className="font-black tabular-nums text-violet-700">{s.byKind['Réparation'].count}</p>
+                      <p className="text-[11px] font-bold text-violet-600 tabular-nums">{money(s.byKind['Réparation'].amount)}</p>
                     </div>
                   </div>
                 </Section>
@@ -1001,7 +1001,7 @@ export function ServiceWorksPanel({ workers, from, to }: {
       w.works.forEach(x => seen.set(x.id, x.total));
       base += w.worksBase; earned += w.earned; due += w.dueNow;
       const s = serviceStats(w);
-      settled += s.settledShare; lavages += s.byKind.Lavage.count; vidanges += s.byKind.Vidange.count;
+      settled += s.settledShare; lavages += s.byKind.Lavage.count; vidanges += s.byKind['Réparation'].count;
     });
     return {
       works: seen.size,

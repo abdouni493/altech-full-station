@@ -169,7 +169,7 @@ section('Une intervention porte ses prestations ET ses produits');
       total: 1100, paid: 600, rest: 500, status: 'finalized', date: '2026-04-01T08:00:00', workers: [],
     }],
   };
-  const st = bizClientStatement(state, CLIENT as any, 'Lavage & Vidange');
+  const st = bizClientStatement(state, CLIENT as any, 'Lavage & Réparation');
   check('prestation + produit sont détaillés', st.lines[0].items?.length, 2);
   check('le total de l\'intervention', st.totals.charged, 1100);
   check('le reste dû', st.closingDebt, 500);

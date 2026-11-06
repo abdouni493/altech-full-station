@@ -186,7 +186,7 @@ section("Lavage — 8 000 de dette reprise et 3 000 d'avance");
   };
   const state: any = { ...EMPTY_MODULE(), clients: [client] };
 
-  const st = bizClientStatement(state, client, 'Lavage & Vidange');
+  const st = bizClientStatement(state, client, 'Lavage & Réparation');
   check('les deux reprises figurent au journal',
     st.allLines.filter(l => l.kind === 'ouverture' || l.kind === 'avance').length, 2);
   check('le règlement de la reprise, lui, est bien un encaissement', st.totals.paid, 2000);

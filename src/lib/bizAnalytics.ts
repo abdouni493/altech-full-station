@@ -377,7 +377,7 @@ export function computeModuleAnalytics(
     });
     // Une prestation n'a pas de marchandise derrière elle : elle est marge pure.
     prestationsOf(r).forEach(p => {
-      const name = p.kind === 'lavage' ? 'Prestations — Lavage' : 'Prestations — Vidange';
+      const name = p.kind === 'lavage' ? 'Prestations — Lavage' : 'Prestations — Réparation';
       const a = touch(acc, name, () => ({
         id: name, name, category: 'Main-d\'œuvre', unit: 'prestation', kind: 'prestation' as ProductKind,
       }));

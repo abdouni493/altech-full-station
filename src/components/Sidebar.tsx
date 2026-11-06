@@ -69,7 +69,7 @@ function buildModuleNavGroup(key: ModuleKey): NavGroup {
   const b = cfg.base;
   const items: NavItem[] = [];
   if (cfg.isService) {
-    items.push({ label: "Vidanges & Lavage", icon: Car,         path: `${b}/reparations` });
+    items.push({ label: "Réparations & Lavage", icon: Car,         path: `${b}/reparations` });
     items.push({ label: "Demandes d'encaissement", icon: BellRing, path: `${b}/encaissements` });
     items.push({ label: "Point de vente",       icon: ShoppingBag, path: `${b}/pos` });
     items.push({ label: "Ventes",               icon: Receipt,     path: `${b}/sales` });
@@ -148,6 +148,7 @@ function buildAdminNavGroups(): NavGroup[] {
       { label: "Cuves / Tanks",      icon: Gauge,        path: "/tanks",           moduleId: "Cuves" },
       { label: "Pompes",             icon: Wrench,       path: "/pumps",           moduleId: "Pompes" },
       { label: "Achats Carburant",   icon: ShoppingCart, path: "/fuel-purchases",  moduleId: "Achats Carburant" },
+      { label: "Ventes Carburant",   icon: Receipt,      path: "/ventes-carburant", moduleId: "Ventes Carburant" },
       { label: "Pompistes",          icon: UsersRound,   path: "/pompistes",       moduleId: "Pompistes" },
       { label: "Gérants",            icon: Building2,    path: "/gerants",         moduleId: "Gérants" },
       { label: "Clients",            icon: Users,        path: "/clients",         moduleId: "Clients" },
@@ -184,6 +185,7 @@ const WORKER_MODULE_NAV: Record<string, ModuleNavDef> = {
   "Cuves":             { label: "Cuves / Tanks",     icon: Gauge,        path: "/tanks",           group: "fuel" },
   "Pompes":            { label: "Pompes",            icon: Wrench,       path: "/pumps",           group: "fuel" },
   "Achats Carburant":  { label: "Achats Carburant",  icon: ShoppingCart, path: "/fuel-purchases",  group: "fuel" },
+  "Ventes Carburant":  { label: "Ventes Carburant",  icon: Receipt,      path: "/ventes-carburant", group: "fuel" },
   "Inventaires":       { label: "Inventaire",        icon: Archive,      path: "/inventory",       group: "fuel" },
   // Contacts
   "Clients":           { label: "Clients",           icon: Users,        path: "/clients",         group: "contacts" },
@@ -228,7 +230,7 @@ const DASHBOARD_ITEM: NavItem = { label: "Tableau de Bord", icon: LayoutDashboar
 // --- Sidebar alerts ---
 //
 // Some screens hold work that is WAITING for someone: a demande d'encaissement
-// the caisse has not collected yet, a lavage/vidange left "en attente". The
+// the caisse has not collected yet, a lavage/réparation left "en attente". The
 // sidebar shows that count on the button itself (and on the collapsed section
 // header), so nobody has to open the page to notice there is something to do.
 
@@ -336,7 +338,7 @@ const PART_IFACE_NAV: Record<string, { label: string; icon: React.ElementType }>
   pos:         { label: "Point de vente",       icon: ShoppingBag },
   sales:       { label: "Ventes",               icon: Receipt },
   tables:      { label: "Gestion des tables",   icon: LayoutGrid },
-  reparations: { label: "Vidanges & Lavage",    icon: Car },
+  reparations: { label: "Réparations & Lavage",    icon: Car },
   encaissements: { label: "Demandes d'encaissement", icon: BellRing },
   clients:     { label: "Clients",              icon: Users },
   messages:    { label: "Messages clients",     icon: MessageCircle },

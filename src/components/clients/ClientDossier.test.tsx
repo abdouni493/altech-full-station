@@ -2,7 +2,7 @@
  * ─── Vérification du dossier client ────────────────────────────────────────────
  *
  * Le dossier est le seul écran que les TROIS activités partagent — Carburant,
- * Cafétéria, Lavage & Vidange. Une rubrique qui cesse de rendre, ou un total
+ * Cafétéria, Lavage & Réparation. Une rubrique qui cesse de rendre, ou un total
  * qui ne se retrouve plus dans le journal, casse donc les trois d'un coup, et
  * rien ne le dirait avant qu'un gérant n'ouvre la fiche d'un client.
  *

@@ -1,11 +1,11 @@
 /**
- * ─── Vidanges & Lavage ───────────────────────────────────────────────────────
- * Interventions of the Lavage & Vidange part.
+ * ─── Réparations & Lavage ───────────────────────────────────────────────────────
+ * Interventions of the Lavage & Réparation part.
  *
  *  • Le client est optionnel — sans client, l'intervention est au nom d'un
  *    « Client de passage ».
  *  • Une intervention porte AUTANT DE PRESTATIONS que nécessaire : un lavage et
- *    une vidange peuvent être créés en une seule fois. Chaque prestation a sa
+ *    une réparation peuvent être créés en une seule fois. Chaque prestation a sa
  *    désignation, son montant et ses employés (base de la paie au pourcentage).
  *  • Une remise peut être appliquée en pourcentage ou en montant fixe ; elle est
  *    déduite du sous-total (prestations + produits).
@@ -50,7 +50,7 @@ import BarcodeScannerModal from '@/src/components/BarcodeScannerModal';
 /**
  * Chaque nature d'intervention porte SA couleur, et c'est la même partout :
  * le bouton qui la crée, la ligne de prestation, le bandeau du formulaire et
- * la pastille de la liste. Un lavage se lit en cyan, une vidange en violet,
+ * la pastille de la liste. Un lavage se lit en cyan, une réparation en violet,
  * les deux réunis aux couleurs de la station.
  */
 const KIND_META: Record<BizRepKind, {
@@ -63,7 +63,7 @@ const KIND_META: Record<BizRepKind, {
   soft: string; border: string; text: string;
 }> = {
   reparation: {
-    label: 'Vidange', icon: Wrench,
+    label: 'Réparation', icon: Wrench,
     grad: 'linear-gradient(135deg,#6d28d9,#a78bfa)', shadow: '0 8px 20px rgba(109,40,217,0.30)',
     soft: 'bg-violet-50', border: 'border-violet-200', text: 'text-violet-700',
   },
@@ -73,7 +73,7 @@ const KIND_META: Record<BizRepKind, {
     soft: 'bg-cyan-50', border: 'border-cyan-200', text: 'text-cyan-700',
   },
   mixte: {
-    label: 'Lavage + Vidange', icon: Layers,
+    label: 'Lavage + Réparation', icon: Layers,
     grad: 'linear-gradient(135deg,#003087,#0044bb)', shadow: '0 8px 20px rgba(0,48,135,0.32)',
     soft: 'bg-blue-50', border: 'border-blue-200', text: 'text-[#002d87]',
   },
@@ -171,7 +171,7 @@ export default function ModuleReparations({ moduleKey }: { moduleKey: ModuleKey 
    * Une intervention nomme ses employés dans `workers`, mais c'est CHAQUE
    * prestation qui dit lequel l'a réalisée. La liste affiche donc l'équipe de
    * la ligne, chacun avec les prestations qui lui reviennent : sur une fiche
-   * qui porte un lavage ET une vidange, « Karim » seul ne dit pas lequel des
+   * qui porte un lavage ET une réparation, « Karim » seul ne dit pas lequel des
    * deux il a fait — et c'est pourtant là-dessus qu'il est payé.
    *
    * Un employé nommé sur l'intervention sans être rattaché à une prestation
@@ -268,7 +268,7 @@ export default function ModuleReparations({ moduleKey }: { moduleKey: ModuleKey 
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <PageHeader icon={Car} title="Vidanges & Lavage" subtitle={`${cfg.label} — atelier & interventions`}
+      <PageHeader icon={Car} title="Réparations & Lavage" subtitle={`${cfg.label} — atelier & interventions`}
         actions={perm.creer ? <NewInterventionActions onPick={setCreating} /> : undefined} />
 
       {/*
@@ -323,7 +323,7 @@ export default function ModuleReparations({ moduleKey }: { moduleKey: ModuleKey 
           title={status === 'pending' ? 'Aucune intervention en attente' : 'Aucune intervention'}
           message={status === 'pending'
             ? "L'atelier est à jour — tout est finalisé. L'historique complet reste à un clic."
-            : "Créez un lavage ou une vidange : la fiche s'ouvre en attente et se finalise d'un clic."}
+            : "Créez un lavage ou une réparation : la fiche s'ouvre en attente et se finalise d'un clic."}
           action={status === 'pending'
             ? <button className="btn-secondary" onClick={() => chooseStatus('all')}>Voir toutes les interventions</button>
             : undefined} />
@@ -531,14 +531,14 @@ export default function ModuleReparations({ moduleKey }: { moduleKey: ModuleKey 
 /**
  * ─── UN SEUL GESTE POUR OUVRIR L'ATELIER ────────────────────────────────────
  *
- * Trois boutons, un par nature de travail — Lavage / Vidange / les deux. Ils
+ * Trois boutons, un par nature de travail — Lavage / Réparation / les deux. Ils
  * ouvrent TOUS la fiche « en attente » : c'est l'ordre réel des choses, le
  * véhicule arrive avant d'être fini, et rien ne sort du stock tant que le
  * travail n'est pas fait.
  *
  * Le quatrième bouton « En attente » qui doublait ces trois-là a disparu : il
  * ne servait qu'à choisir un statut que la fiche pose maintenant d'elle-même,
- * et il imposait de démarrer en Lavage même pour une vidange. Finaliser tout
+ * et il imposait de démarrer en Lavage même pour une réparation. Finaliser tout
  * de suite reste à UN clic — le sélecteur « Finalisé » en tête de fiche, ou le
  * bouton vert du pied de page.
  */
@@ -547,7 +547,7 @@ function NewInterventionActions({
 }: { onPick: (v: { kind: BizRepKind; pending: boolean }) => void }) {
   const TYPES: { kind: BizRepKind; short: string }[] = [
     { kind: 'lavage', short: 'Lavage' },
-    { kind: 'reparation', short: 'Vidange' },
+    { kind: 'reparation', short: 'Réparation' },
     { kind: 'mixte', short: 'Les deux' },
   ];
   return (
@@ -737,7 +737,7 @@ const keptLine = (l: LineDraft) =>
  * The same form serves creation, edition and finalisation of a pending job, so
  * the three flows can never drift apart.
  *
- * An intervention holds a LIST of prestations: un lavage et une vidange
+ * An intervention holds a LIST of prestations: un lavage et une réparation
  * peuvent être facturés en une seule création, chacun avec sa désignation, son
  * montant et ses employés. Une remise (pourcentage ou montant fixe) est ensuite
  * déduite du sous-total.
@@ -880,7 +880,7 @@ function ReparationForm({
    *
    * La recherche s'effaçait dès qu'on cliquait un produit : la liste des
    * résultats disparaissait, et rien ne disait ce qui venait d'être ajouté.
-   * Sur une vidange — huile, filtre à huile, filtre à air, joint — on perdait
+   * Sur une réparation — huile, filtre à huile, filtre à air, joint — on perdait
    * le fil à chaque article.
    *
    * La recherche est donc CONSERVÉE. Le produit déjà pris se reconnaît dans les
@@ -1242,7 +1242,7 @@ function ReparationForm({
 
           {/* ── 1 · Prestations ─────────────────────────────────────────────── */}
           <Block step={1} icon={Layers} title="Prestations réalisées"
-            hint="Un lavage, une vidange, ou les deux — chacun avec son montant et ses employés."
+            hint="Un lavage, une réparation, ou les deux — chacun avec son montant et ses employés."
             grad="linear-gradient(135deg,#003087,#0044bb)" border="border-blue-200" tint="bg-slate-50/60"
             action={
               <div className="flex gap-2">
@@ -1311,7 +1311,7 @@ function ReparationForm({
                       <div className="p-3 space-y-3">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div className="sm:col-span-2">
-                            <Input placeholder={l.kind === 'lavage' ? 'Ex: Lavage complet intérieur/extérieur' : 'Ex: Vidange moteur + filtre à huile'}
+                            <Input placeholder={l.kind === 'lavage' ? 'Ex: Lavage complet intérieur/extérieur' : 'Ex: Réparation moteur + filtre à huile'}
                               value={l.label} onChange={e => patchLine(l.id, { label: e.target.value })} />
                           </div>
                           <Input type="number" placeholder="Montant (DA)" value={l.amountStr}
@@ -1324,7 +1324,7 @@ function ReparationForm({
                           </p>
                           {pool.length === 0 ? (
                             <p className="text-xs text-slate-400 italic">
-                              Aucun employé « {l.kind === 'lavage' ? 'lavage' : 'vidange'} » enregistré.
+                              Aucun employé « {l.kind === 'lavage' ? 'lavage' : 'réparation'} » enregistré.
                             </p>
                           ) : (
                             <div className="flex flex-wrap gap-1.5">

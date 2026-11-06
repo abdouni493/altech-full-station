@@ -84,7 +84,7 @@ export default function ModuleClients({ moduleKey }: { moduleKey: ModuleKey }) {
    * ─── Encaisser la dette d'un client de partie ───────────────────────
    *
    * L'écran ne savait pas encaisser : il fallait retrouver la facture dans
-   * « Ventes » ou l'intervention dans « Vidanges », une par une, pour solder un
+   * « Ventes » ou l'intervention dans « Réparations », une par une, pour solder un
    * client qui venait payer TOUT ce qu'il devait. Le règlement est donc réparti
    * sur ses documents non soldés, du PLUS ANCIEN au plus récent — la règle
    * comptable habituelle.

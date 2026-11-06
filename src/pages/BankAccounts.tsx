@@ -7,11 +7,13 @@
  * balances can never disagree.
  * ──────────────────────────────────────────────────────────────────────────────
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Landmark, Plus, Edit2, Trash2, ArrowLeftRight, History, Wallet,
-  ArrowDownCircle, ArrowUpCircle, PiggyBank, Building2, TrendingUp, RefreshCw,
+  ArrowDownCircle, ArrowUpCircle, PiggyBank, Building2, TrendingUp, RefreshCw, Handshake,
 } from 'lucide-react';
+import NegotiationModal from '../components/bank/NegotiationModal';
+import { Negotiation, loadNegotiations, negotiableItems, negotiatedKeys } from '../lib/negotiations';
 import { toast } from 'react-hot-toast';
 import { newId } from '@/src/lib/utils';
 import {
@@ -45,6 +47,19 @@ export default function BankAccounts() {
   const [transferring, setTransferring] = useState<BankAccount | null>(null);
   const [viewingHistory, setViewingHistory] = useState<BankAccount | null>(null);
   const [toDelete, setToDelete] = useState<BankAccount | null>(null);
+  // Négociation des TPE / TAG justifiés dans les brigades.
+  const [negotiating, setNegotiating] = useState<{ account: BankAccount; tab: 'pending' | 'history' } | null>(null);
+  const [negotiations, setNegotiations] = useState<Negotiation[]>([]);
+  useEffect(() => { loadNegotiations().then(setNegotiations); }, []);
+  const pendingByAccount = useMemo(() => {
+    const done = negotiatedKeys(negotiations);
+    const m: Record<string, { count: number; amount: number; any: boolean }> = {};
+    negotiableItems(brigadeAccountings, brigades, pompistes).forEach(i => {
+      const e = m[i.bankAccountId] || (m[i.bankAccountId] = { count: 0, amount: 0, any: true });
+      if (!done.has(i.key)) { e.count++; e.amount += i.amount; }
+    });
+    return m;
+  }, [brigadeAccountings, brigades, pompistes, negotiations]);
 
   // Always derive the solde from the ledger — never trust a stored number.
   const accounts = useMemo(
@@ -202,6 +217,14 @@ export default function BankAccounts() {
                   <RowActions>
                     <ActionBtn icon={History} tone="blue" title="Historique" onClick={() => setViewingHistory(a)} />
                     <ActionBtn icon={ArrowLeftRight} tone="green" title="Transférer" onClick={() => setTransferring(a)} />
+                      {pendingByAccount[a.id]?.any && (
+                        <span className="relative inline-flex">
+                          <ActionBtn icon={Handshake} tone="amber" title="Négociation TPE / TAG" onClick={() => setNegotiating({ account: a, tab: 'pending' })} />
+                          {pendingByAccount[a.id].count > 0 && (
+                            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center pointer-events-none">{pendingByAccount[a.id].count}</span>
+                          )}
+                        </span>
+                      )}
                     {perm.modifier && <ActionBtn icon={Edit2} tone="amber" title="Modifier" onClick={() => setEditing(a)} />}
                     {perm.supprimer && <ActionBtn icon={Trash2} tone="red" title="Supprimer" onClick={() => setToDelete(a)} />}
                   </RowActions>
@@ -245,10 +268,21 @@ export default function BankAccounts() {
                     </div>
                   </div>
                   <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                    <span className="text-[11px] text-slate-400">{moves.length} mouvement(s)</span>
+                    <span className="text-[11px] text-slate-400">
+                      {moves.length} mouvement(s)
+                      {pendingByAccount[a.id]?.count ? <span className="block text-amber-600 font-black">{money(pendingByAccount[a.id].amount)} à négocier</span> : null}
+                    </span>
                     <RowActions>
                       <ActionBtn icon={History} tone="blue" title="Historique" onClick={() => setViewingHistory(a)} />
                       <ActionBtn icon={ArrowLeftRight} tone="green" title="Transférer" onClick={() => setTransferring(a)} />
+                      {pendingByAccount[a.id]?.any && (
+                        <span className="relative inline-flex">
+                          <ActionBtn icon={Handshake} tone="amber" title="Négociation TPE / TAG" onClick={() => setNegotiating({ account: a, tab: 'pending' })} />
+                          {pendingByAccount[a.id].count > 0 && (
+                            <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center pointer-events-none">{pendingByAccount[a.id].count}</span>
+                          )}
+                        </span>
+                      )}
                       {perm.modifier && <ActionBtn icon={Edit2} tone="amber" title="Modifier" onClick={() => setEditing(a)} />}
                       {perm.supprimer && <ActionBtn icon={Trash2} tone="red" title="Supprimer" onClick={() => setToDelete(a)} />}
                     </RowActions>
@@ -296,7 +330,19 @@ export default function BankAccounts() {
           account={{ ...viewingHistory, balance: bankBalanceOf(viewingHistory, treasuryTransactions) }}
           txs={treasuryTransactions}
           accounts={accounts}
+          negotiations={negotiations.filter(n => n.bankAccountId === viewingHistory.id)}
+          onOpenNegotiations={() => { setNegotiating({ account: viewingHistory, tab: 'history' }); setViewingHistory(null); }}
           onClose={() => setViewingHistory(null)}
+        />
+      )}
+
+      {negotiating && (
+        <NegotiationModal
+          account={{ ...negotiating.account, balance: bankBalanceOf(negotiating.account, treasuryTransactions) }}
+          negotiations={negotiations}
+          onChanged={setNegotiations}
+          initialTab={negotiating.tab}
+          onClose={() => setNegotiating(null)}
         />
       )}
 
@@ -471,12 +517,14 @@ function TransferModal({
 
 // ─── History of one account ────────────────────────────────────────────────────
 function AccountHistory({
-  account, txs, accounts, onClose,
+  account, txs, accounts, onClose, negotiations = [], onOpenNegotiations,
 }: {
   account: BankAccount & { balance: number };
   txs: TreasuryTransaction[];
   accounts: BankAccount[];
   onClose: () => void;
+  negotiations?: Negotiation[];
+  onOpenNegotiations?: () => void;
 }) {
   const [period, setPeriod] = useState<Period>('all');
   const [from, setFrom] = useState(''); const [to, setTo] = useState('');
@@ -511,6 +559,23 @@ function AccountHistory({
             <p className="font-black text-slate-700 tabular-nums">{money(credit - debit)}</p>
           </div>
         </div>
+
+        {negotiations.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-black uppercase tracking-widest text-amber-800 flex items-center gap-1.5"><Handshake className="w-4 h-4" /> Négociations TPE / TAG ({negotiations.length})</p>
+              {onOpenNegotiations && <button onClick={onOpenNegotiations} className="text-[11px] font-black text-[#002d87] underline">Voir le détail</button>}
+            </div>
+            <div className="space-y-1.5">
+              {negotiations.slice(0, 5).map(n => (
+                <div key={n.id} className="flex items-center justify-between text-xs font-bold bg-white rounded-lg px-3 py-2 border border-amber-100">
+                  <span>{formatDate(n.date)} · {n.items.length} opération(s){n.reference ? ` · Réf. ${n.reference}` : ''}</span>
+                  <span className="font-black text-red-600 tabular-nums">−{money(n.amount)} → Caisse Carburant</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <PeriodFilter period={period} onChange={setPeriod} from={from} to={to} onFrom={setFrom} onTo={setTo} />
 

@@ -7,7 +7,7 @@
  * Cinq mouvements possibles :
  *   • ACHAT       — une facture fournisseur l'a fait entrer en stock ;
  *   • VENTE       — un ticket du point de vente l'a fait sortir ;
- *   • INTERVENTION — un lavage / une vidange l'a consommé et facturé ;
+ *   • INTERVENTION — un lavage / une réparation l'a consommé et facturé ;
  *   • PRODUCTION  — une fabrication l'a consommé comme ingrédient ;
  *   • DESTRUCTION — il a été perdu (périmé, cassé, volé).
  *
@@ -57,7 +57,7 @@ export interface ProductDocument {
   rest: number;
   status?: string;
   createdBy?: string;
-  /** Véhicule, pour une intervention de lavage / vidange. */
+  /** Véhicule, pour une intervention de lavage / réparation. */
   car?: string;
   note?: string;
 }
@@ -178,7 +178,7 @@ function saleDoc(s: BizSale, target: BizProduct): ProductDocument {
 
 function reparationDoc(r: BizReparation, target: BizProduct): ProductDocument {
   const prestations = prestationsOf(r).map(p => ({
-    name: `${p.kind === 'lavage' ? 'Lavage' : 'Vidange'} — ${p.label}`,
+    name: `${p.kind === 'lavage' ? 'Lavage' : 'Réparation'} — ${p.label}`,
     qty: 1, unitPrice: num(p.amount), total: num(p.amount), target: false,
   }));
   const products = (r.usedProducts || []).map(it => ({
@@ -191,7 +191,7 @@ function reparationDoc(r: BizReparation, target: BizProduct): ProductDocument {
   const subtotal = num(r.subtotal) || [...prestations, ...products].reduce((s, l) => s + l.total, 0);
   return {
     kind: 'reparation',
-    title: r.kind === 'lavage' ? 'Bon de lavage' : r.kind === 'reparation' ? 'Bon de vidange' : 'Bon lavage + vidange',
+    title: r.kind === 'lavage' ? 'Bon de lavage' : r.kind === 'reparation' ? 'Bon de réparation' : 'Bon lavage + réparation',
     ref: r.ref,
     date: r.date,
     partyLabel: 'Client',
@@ -270,7 +270,7 @@ export function computeProductHistory(st: ModuleState, product: BizProduct): Pro
     });
   });
 
-  // ── Interventions (lavage / vidange) ──
+  // ── Interventions (lavage / réparation) ──
   (st.reparations || []).forEach(r => {
     (r.usedProducts || []).forEach((it, i) => {
       if (!isTarget(it, product)) return;

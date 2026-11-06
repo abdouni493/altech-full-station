@@ -11,7 +11,7 @@ const SUB_LABELS: Record<string, string> = {
   stock: "Gestion de stock", purchases: "Achats", production: "Production", comptoir: "Comptoir",
   pos: "Point de vente", sales: "Ventes", clients: "Clients", suppliers: "Fournisseurs",
   workers: "Employés", expenses: "Dépenses", caisse: "Caisse", reports: "Rapports",
-  reparations: "Vidanges & Lavage", services: "Services",
+  reparations: "Réparations & Lavage", services: "Services",
 };
 const MODULE_ROUTE_TITLES: Record<string, { title: string; subtitle: string; emoji: string }> = (() => {
   const map: Record<string, { title: string; subtitle: string; emoji: string }> = {

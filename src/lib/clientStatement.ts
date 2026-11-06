@@ -358,12 +358,12 @@ function saleLine(s: BizSale): StatementLine {
   };
 }
 
-/** Une intervention lavage / vidange. */
+/** Une intervention lavage / réparation. */
 function repLine(r: BizReparation): StatementLine {
   const canceled = r.status === 'canceled';
   const items: StatementItem[] = [
     ...prestationsOf(r).map(p => ({
-      name: p.label || (p.kind === 'lavage' ? 'Lavage' : 'Vidange'),
+      name: p.label || (p.kind === 'lavage' ? 'Lavage' : 'Réparation'),
       qty: 1,
       unitPrice: num(p.amount),
       total: num(p.amount),
@@ -381,7 +381,7 @@ function repLine(r: BizReparation): StatementLine {
     id: `rep-${r.id}`,
     date: r.date,
     kind: 'intervention',
-    kindLabel: r.kind === 'lavage' ? 'Lavage' : r.kind === 'mixte' ? 'Lavage + Vidange' : 'Vidange',
+    kindLabel: r.kind === 'lavage' ? 'Lavage' : r.kind === 'mixte' ? 'Lavage + Réparation' : 'Réparation',
     ref: r.ref,
     label: [r.problem || 'Intervention', car].filter(Boolean).join(' — '),
     status: r.status,

@@ -71,7 +71,7 @@ export const FEEDBACK_PARTS: {
   // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
   { id: 'lavage', get label() { return MODULES.lavage.label; }, get short() { return MODULES.lavage.short; }, emoji: '🛒', hint: 'Produits et accessoires du magasin' },
   { id: 'magasin2', get label() { return MODULES.magasin2.label; }, get short() { return MODULES.magasin2.short; }, emoji: '🏬', hint: 'Produits et accessoires du magasin' },
-  { id: 'carwash', label: 'Lavage & Vidange', short: 'Lavage', emoji: '🧽', hint: 'Lavage, vidange, accueil' },
+  { id: 'carwash', label: 'Lavage & Réparation', short: 'Lavage', emoji: '🧽', hint: 'Lavage, réparation, accueil' },
 ];
 
 /** Les parties proposées : le second magasin n'y figure qu'une fois créé. */

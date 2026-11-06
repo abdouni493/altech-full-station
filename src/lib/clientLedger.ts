@@ -321,7 +321,9 @@ export function clientLedger(app: any, clientId: string): ClientLedger {
       id: `shop-${s.id}`,
       date: s.date,
       kind: 'magasin',
-      label: `Vente magasin${(s.items || []).length ? ` — ${(s.items || []).length} article(s)` : ''}`,
+      label: s.invoice?.kind === 'CARBURANT'
+        ? `Facture vente ${s.invoice.number}${(s.items || []).length ? ` — ${(s.items || []).length} article(s)` : ''}`
+        : `Vente magasin${(s.items || []).length ? ` — ${(s.items || []).length} article(s)` : ''}`,
       charged: total,
       paid: 0,
       // Seule la part NON réglée sur place devient une dette.
@@ -332,7 +334,7 @@ export function clientLedger(app: any, clientId: string): ClientLedger {
       notes: s.notes,
       rest,
       paidOnDocument: paidOnSale,
-      ref: s.bonNumber || undefined,
+      ref: s.invoice?.number || s.bonNumber || undefined,
       items: (s.items || []).map((it: any) => ({
         name: it.productName || 'Article',
         qty: num(it.quantity),

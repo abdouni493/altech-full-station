@@ -20,6 +20,8 @@ import {
 } from "../lib/brigadeBankLines";
 import { ownsNozzleIndex } from "../lib/nozzleIndexes";
 import { planBrigadeExpenses, BRIGADE_EXPENSE_CATEGORY } from "../lib/brigadeExpenses";
+import JustifOperationsEditor, { useTagTypes, JustifOpsList } from "./brigade/JustifOperationsEditor";
+import { JustifEntryMode, JustifOperation, knownCardNumbers, opsTotal } from "../lib/justifOps";
 
 interface Justification {
   id: string;
@@ -53,6 +55,9 @@ interface Justification {
   pricePerLiter?: number;
   trackId?: string;
   pompisteId?: string;
+  entryMode?: JustifEntryMode;
+  operations?: JustifOperation[];
+  tagType?: string;
 }
 
 interface Props {
@@ -76,6 +81,8 @@ interface Props {
   treasuryTransactions?: TreasuryTransaction[];
   /** Les comptes bancaires : un TAG / TPE justifié crédite celui du terminal. */
   bankAccounts?: BankAccount[];
+  /** Toutes les comptabilités — pour proposer les n° de carte déjà saisis. */
+  allAccountingsForCards?: BrigadeAccounting[];
   /**
    * Les dépenses déjà enregistrées. Une justification « dépense » en écrit une
    * vraie dans l'écran Dépenses : il faut donc savoir laquelle existe déjà pour
@@ -112,7 +119,7 @@ type VerEntry = { verified: boolean; corrected: boolean; correctedValue?: number
 const BrigadeAccountingModal: React.FC<Props> = ({
   brigade, pumps, tanks, pompistes, brigadeChefs, pumpNozzles, settings,
   clients, tracks, currentUserRole, currentUserName, existingAccounting,
-  treasuryTransactions = [], bankAccounts = [], expenses = [], clientAccounts = {}, brigades = [],
+  treasuryTransactions = [], bankAccounts = [], expenses = [], clientAccounts = {}, brigades = [], allAccountingsForCards,
   dispatch, onClose
 }) => {
   const chef = brigadeChefs.find(c => c.id === brigade.chefId);
@@ -138,6 +145,7 @@ const BrigadeAccountingModal: React.FC<Props> = ({
       clientName: j.clientName, notes: j.notes, expenseCategory: j.expenseCategory,
       fuelType: j.fuelType, liters: j.liters,
       pricePerLiter: j.pricePerLiter, trackId: j.trackId, pompisteId: j.pompisteId,
+      entryMode: j.entryMode, operations: j.operations, tagType: j.tagType,
       product: j.justificationType === 'ACHAT_PRODUIT' ? {
         productId: j.productId, productName: j.productName, moduleKey: j.moduleKey,
         armoireId: j.armoireId, quantity: j.quantity, unitPrice: j.unitPrice,
@@ -356,25 +364,43 @@ const BrigadeAccountingModal: React.FC<Props> = ({
   const tpePricePerLiter = useMemo(() => settings.fuelPrices[tpeFuelType as FuelType] || 0, [settings, tpeFuelType]);
   const tpeAutoAmount = useMemo(() => (typeof tpeLiters === 'number' ? tpeLiters * tpePricePerLiter : 0), [tpeLiters, tpePricePerLiter]);
 
+  // Saisie TPE / TAG : montant global (+ description) ou opérations détaillées.
+  const tagTypesStore = useTagTypes();
+  const knownCards = useMemo(() => knownCardNumbers(allAccountingsForCards || (existingAccounting ? [existingAccounting] : [])), [allAccountingsForCards, existingAccounting]);
+  const fuelTypeList = useMemo(() => {
+    const fromTanks = [...new Set(tanks.map(t => t.type))].filter(Boolean) as string[];
+    return fromTanks.length ? fromTanks : Object.keys(settings.fuelPrices || {});
+  }, [tanks, settings.fuelPrices]);
+  const [draftMode, setDraftMode] = useState<JustifEntryMode>('TOTAL');
+  const [draftOps, setDraftOps] = useState<JustifOperation[]>([]);
+  const [draftAmount, setDraftAmount] = useState(0);
+  const [draftDesc, setDraftDesc] = useState('');
+  const [draftTagType, setDraftTagType] = useState<string | undefined>(undefined);
+  const draftTotal = draftMode === 'DETAIL' ? opsTotal(draftOps) : draftAmount;
+
   const addTpeJustification = () => {
-    if (!tpeLiters || +tpeLiters <= 0) return;
-    const amount = +tpeLiters * tpePricePerLiter;
+    if (!(draftTotal > 0)) return;
     setJustifications(prev => [...prev, {
       id: newId(),
       clientId: '',
-      clientName: tpeClientName || undefined,
-      amount,
+      clientName: draftDesc || tpeClientName || undefined,
+      notes: draftDesc || undefined,
+      amount: draftTotal,
       justificationType: justifMode,
       // TAG comme TPE : l'argent est encaissé sur un compte bancaire.
       bankAccountId: tpeBankAccountId || undefined,
-      fuelType: tpeFuelType,
-      liters: +tpeLiters,
-      pricePerLiter: tpePricePerLiter,
+      fuelType: draftOps[0]?.fuelType || tpeFuelType,
+      liters: 0,
+      pricePerLiter: 0,
       trackId: tpeTrackId || undefined,
       pompisteId: tpePompisteId || undefined,
+      entryMode: draftMode,
+      operations: draftMode === 'DETAIL' ? draftOps : undefined,
+      tagType: justifMode === 'TAG' ? draftTagType : undefined,
     }]);
     setTpeClientName('');
     setTpeLiters('');
+    setDraftOps([]); setDraftAmount(0); setDraftDesc(''); setDraftMode('TOTAL');
   };
 
   // ── Save ─────────────────────────────────────────────────────────────────────
@@ -389,6 +415,7 @@ const BrigadeAccountingModal: React.FC<Props> = ({
         clientName: j.clientName, expenseCategory: j.expenseCategory,
         fuelType: j.fuelType, liters: j.liters,
         pricePerLiter: j.pricePerLiter, trackId: j.trackId, pompisteId: j.pompisteId,
+        entryMode: j.entryMode, operations: j.operations, tagType: j.tagType,
         ...(j.product || {}),
       };
     });
@@ -1185,52 +1212,27 @@ const BrigadeAccountingModal: React.FC<Props> = ({
                         )}
                       </div>
 
-                      {/* Optional client name */}
-                      <div>
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Nom du Client (optionnel)</label>
-                        <input
-                          type="text"
-                          placeholder="Nom du client..."
-                          value={tpeClientName}
-                          onChange={e => setTpeClientName(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-amber-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-amber-400 bg-white"
-                        />
-                      </div>
-
-                      {/* Fuel type selector */}
-                      <div>
-                        <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Type Carburant</label>
-                        <select
-                          value={tpeFuelType}
-                          onChange={e => setTpeFuelType(e.target.value)}
-                          className="w-full px-3 py-2.5 border border-amber-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-amber-400 bg-white"
-                        >
-                          {Object.entries(settings.fuelPrices).map(([type, price]) => (
-                            <option key={type} value={type}>{type} — {Number(price).toFixed(2)} DA/L</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Liters input with auto-calculated total */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Quantité (Litres)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            placeholder="0.00"
-                            value={tpeLiters}
-                            onChange={e => setTpeLiters(parseFloat(e.target.value) || '')}
-                            className="w-full px-3 py-2.5 border border-amber-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-amber-400 bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block mb-1">Montant Calculé</label>
-                          <div className="px-3 py-2.5 bg-amber-100 border-2 border-amber-300 rounded-xl">
-                            <span className="font-black text-amber-900">{tpeAutoAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} DA</span>
-                          </div>
-                        </div>
-                      </div>
+                      <JustifOperationsEditor
+                        type={justifMode}
+                        entryMode={draftMode}
+                        operations={draftOps}
+                        onChange={(m, ops) => { setDraftMode(m); setDraftOps(ops); }}
+                        fuelTypes={fuelTypeList}
+                        priceOf={f => (f ? (settings.fuelPrices as any)?.[f] || 0 : 0)}
+                        knownCards={knownCards}
+                        tagTypes={tagTypesStore.types}
+                        onAddTagType={tagTypesStore.add}
+                        products={[]}
+                        amount={draftAmount}
+                        description={draftDesc}
+                        tagType={draftTagType}
+                        onTotalChange={p => {
+                          if (p.amount !== undefined) setDraftAmount(p.amount);
+                          if (p.description !== undefined) setDraftDesc(p.description);
+                          if (p.tagType !== undefined) setDraftTagType(p.tagType);
+                        }}
+                      />
+                      <p className="text-right text-[11px] font-black text-amber-900">Total : {draftTotal.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} DA</p>
 
                       {/* Optional: which track/pompiste */}
                       <div className="grid grid-cols-2 gap-3">
@@ -1262,7 +1264,7 @@ const BrigadeAccountingModal: React.FC<Props> = ({
 
                       <button
                         onClick={addTpeJustification}
-                        disabled={!tpeLiters || +tpeLiters <= 0}
+                        disabled={!(draftTotal > 0)}
                         className="w-full py-2.5 bg-amber-500 disabled:opacity-50 text-white rounded-xl text-[10px] font-black uppercase hover:bg-amber-600 transition-colors flex items-center justify-center gap-2"
                       >
                         <Plus className="w-4 h-4" />
@@ -1316,7 +1318,13 @@ const BrigadeAccountingModal: React.FC<Props> = ({
                               {j.expenseCategory || 'Dépense de brigade'}{j.notes ? ` · ${j.notes}` : ''}
                             </p>
                           ) : isTPE ? (
-                            <p className="text-[10px] text-slate-400">{j.liters?.toFixed(2)} L × {j.pricePerLiter?.toFixed(2)} DA/L</p>
+                            j.entryMode === 'DETAIL' && j.operations?.length ? (
+                              <div className="mt-1"><JustifOpsList type={j.justificationType} operations={j.operations} compact /></div>
+                            ) : (
+                              <p className="text-[10px] text-slate-400">
+                                {j.tagType ? `${j.tagType} · ` : ''}{(j.liters || 0) > 0 ? `${j.liters?.toFixed(2)} L × ${j.pricePerLiter?.toFixed(2)} DA/L` : (j.notes || 'Montant global')}
+                              </p>
+                            )
                           ) : (
                             <p className="text-[10px] text-slate-400">
                               {client?.type} · {client?.paymentMode}

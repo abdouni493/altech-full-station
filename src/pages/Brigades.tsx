@@ -60,6 +60,8 @@ import Skeleton from "../components/Skeleton";
 import BrigadeDetailModal from "../components/BrigadeDetailModal";
 import BrigadeAccountingModal from "../components/BrigadeAccountingModal";
 import BrigadeFicheModal from "../components/BrigadeFicheModal";
+import JustifOperationsEditor, { useTagTypes } from "../components/brigade/JustifOperationsEditor";
+import { JustifEntryMode, JustifOperation, knownCardNumbers, opsTotal } from "../lib/justifOps";
 
 /**
  * ─── L'ORDRE DE LA LISTE : la dernière brigade créée en tête ───────────────────
@@ -133,6 +135,10 @@ interface WizardJustification {
   /** Bouteilles de gaz : `REMPLISSAGE` (des vides de l'armoire redeviennent
    *  pleines) ou `VIDE` (achat de bouteilles vides en plus). */
   consigneMode?: ConsigneMode;
+  // ── TPE / TAG : montant global ou opérations indépendantes ──
+  entryMode?: JustifEntryMode;
+  operations?: JustifOperation[];
+  tagType?: string;
 }
 
 /**
@@ -175,6 +181,18 @@ const Brigades = () => {
   const catalogue = useMemo(() => magasinProducts(biz), [biz, settings.magasin2Enabled]);
   const productOf = (id?: string): BizProduct | undefined => findMagasinProduct(biz, id)?.product;
   const moduleOfProduct = (id?: string): MagasinKey | undefined => findMagasinProduct(biz, id)?.moduleKey;
+  // Opérations TPE / TAG indépendantes : cartes déjà saisies, types de tag, natures.
+  const tagTypesStore = useTagTypes();
+  const knownCards = useMemo(() => knownCardNumbers(brigadeAccountings), [brigadeAccountings]);
+  const justifFuelTypes = useMemo(() => {
+    const fromTanks = [...new Set(tanks.map(t => t.type))].filter(Boolean) as string[];
+    return fromTanks.length ? fromTanks : Object.keys(settings.fuelPrices || {});
+  }, [tanks, settings.fuelPrices]);
+  const justifPriceOf = (f?: string) => (f ? (settings.fuelPrices as any)?.[f] || 0 : 0);
+  const justifProducts = useMemo(() => (catalogue as any[]).map((c: any) => {
+    const p = c.product || c;
+    return { id: p.id, name: p.name, price: +(p.salePrice ?? p.sellingPrice ?? 0) || 0 };
+  }).filter(p => p.id && p.name), [catalogue]);
 
   const [showModal, setShowModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -992,6 +1010,9 @@ const Brigades = () => {
               notes: j.description, fuelType: jFuel, liters: jLiters, pricePerLiter: jPrice,
               trackId: s.trackId, pompisteId: s.pompisteId,
               bankAccountId: j.bankAccountId,
+              entryMode: j.entryMode || 'TOTAL',
+              operations: j.entryMode === 'DETAIL' ? (j.operations || []) : undefined,
+              tagType: j.tagType,
             });
           } else if (j.type === 'EXPENSE') {
             // Une DÉPENSE n'a ni client ni banque : son nom vit dans
@@ -1429,6 +1450,9 @@ const Brigades = () => {
         // resté écrit dans la pièce. Rouvrir une telle brigade la répare donc
         // d'elle-même.
         bankAccountId: accountOfJustification(j, bankAccounts),
+        entryMode: j.entryMode,
+        operations: j.operations,
+        tagType: j.tagType,
         // Une DÉPENSE garde son nom dans `clientName` et sa précision dans
         // `notes` : les deux repartent dans leurs champs respectifs.
         expenseName: type === 'EXPENSE' ? (j.clientName || '') : undefined,
@@ -3974,6 +3998,26 @@ const Brigades = () => {
                                         </div>
                                       )}
 
+                                      {(j.type === 'TAG' || j.type === 'TPE') ? (
+                                        <JustifOperationsEditor
+                                          type={j.type}
+                                          entryMode={j.entryMode || 'TOTAL'}
+                                          operations={j.operations || []}
+                                          onChange={(mode, ops) => patch(mode === 'DETAIL'
+                                            ? { entryMode: mode, operations: ops, amount: opsTotal(ops), liters: 0, byLiters: false }
+                                            : { entryMode: mode, operations: ops })}
+                                          fuelTypes={justifFuelTypes}
+                                          priceOf={justifPriceOf}
+                                          knownCards={knownCards}
+                                          tagTypes={tagTypesStore.types}
+                                          onAddTagType={tagTypesStore.add}
+                                          products={justifProducts}
+                                          amount={j.amount}
+                                          description={j.description}
+                                          tagType={j.tagType}
+                                          onTotalChange={p => patch({ ...p, ...(p.amount !== undefined ? { liters: 0, byLiters: false } : {}) })}
+                                        />
+                                      ) : (<>
                                       {/* Description (always) */}
                                       <input placeholder="Description" value={j.description} onChange={e => patch({ description: e.target.value })} className="input-field h-9 text-xs font-bold w-full" />
 
@@ -3986,6 +4030,7 @@ const Brigades = () => {
                                         <label className="text-[9px] font-black text-slate-400 uppercase mb-1 block">Montant (DA)</label>
                                         <input type="number" placeholder="Montant total" value={j.amount || ''} onChange={e => patch({ amount: parseFloat(e.target.value) || 0, liters: 0, byLiters: false })} className="input-field h-9 text-xs font-bold" />
                                       </div>
+                                      </>)}
 
                                       <p className="text-[10px] font-black text-right text-blue-700">
                                         Montant: {(j.amount || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DZD
@@ -4238,6 +4283,7 @@ const Brigades = () => {
             existingAccounting={brigadeAccountings.find(a => a.brigadeId === selectedBrigade.id)}
             treasuryTransactions={treasuryTransactions}
             bankAccounts={bankAccounts}
+            allAccountingsForCards={brigadeAccountings}
             expenses={expenses}
             clientAccounts={clientAccounts}
             brigades={brigades}

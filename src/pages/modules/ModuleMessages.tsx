@@ -8,7 +8,7 @@
  *
  *    1. ALERTES — la liste des clients dont le prochain passage est dû, déduite
  *       des interventions terminées et des délais réglés par la station (un
- *       délai pour le lavage, un autre pour la vidange, indépendants).
+ *       délai pour le lavage, un autre pour la réparation, indépendants).
  *       Chaque alerte se classe « lue » ou part en message.
  *    2. ENVOYER — chercher un client, choisir ses véhicules, composer le
  *       message (à partir d'un modèle ou librement) et l'envoyer.
@@ -145,7 +145,7 @@ export default function ModuleMessages({ moduleKey }: { moduleKey: ModuleKey }) 
     immatriculation: car?.immatriculation || undefined,
     kilometrage: typeof car?.kilometrage === 'number' ? car.kilometrage.toLocaleString('fr-FR') : undefined,
     derniere_visite: lastVisit ? shortDate(lastVisit) : undefined,
-    prestation: kind === 'lavage' ? 'lavage' : kind === 'reparation' ? 'vidange' : undefined,
+    prestation: kind === 'lavage' ? 'lavage' : kind === 'reparation' ? 'réparation' : undefined,
     station: settings?.stationName || settings?.name || undefined,
     telephone: settings?.phone || undefined,
   });
@@ -450,7 +450,7 @@ export default function ModuleMessages({ moduleKey }: { moduleKey: ModuleKey }) 
                   <td className="table-cell font-bold text-slate-700">{t.name}</td>
                   <td className="table-cell">
                     <Badge tone={t.usage === 'lavage' ? 'info' : t.usage === 'reparation' ? 'warning' : 'neutral'}>
-                      {t.usage === 'lavage' ? 'Rappel de lavage' : t.usage === 'reparation' ? 'Rappel de vidange' : 'Message libre'}
+                      {t.usage === 'lavage' ? 'Rappel de lavage' : t.usage === 'reparation' ? 'Rappel de réparation' : 'Message libre'}
                     </Badge>
                   </td>
                   <td className="table-cell">
@@ -473,7 +473,7 @@ export default function ModuleMessages({ moduleKey }: { moduleKey: ModuleKey }) 
                     <div className="min-w-0">
                       <p className="text-sm font-black text-slate-700 truncate">{t.name}</p>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                        {t.usage === 'lavage' ? 'Rappel de lavage' : t.usage === 'reparation' ? 'Rappel de vidange' : 'Message libre'}
+                        {t.usage === 'lavage' ? 'Rappel de lavage' : t.usage === 'reparation' ? 'Rappel de réparation' : 'Message libre'}
                       </p>
                     </div>
                     <div className="flex gap-1 shrink-0">
@@ -578,7 +578,7 @@ function AlertList({ view, alerts, perm, onSend, onRead, emptyTitle, emptyMessag
                 )}
               </td>
               <td className="table-cell whitespace-nowrap text-slate-500">
-                {a.kind === 'lavage' ? 'Lavage' : 'Vidange'} du {shortDate(a.lastVisit)}
+                {a.kind === 'lavage' ? 'Lavage' : 'Réparation'} du {shortDate(a.lastVisit)}
                 <div className="text-[11px] text-slate-400">{a.ref}</div>
               </td>
               <td className="table-cell whitespace-nowrap text-slate-500">{shortDate(a.dueDate)}</td>
@@ -626,7 +626,7 @@ function AlertList({ view, alerts, perm, onSend, onRead, emptyTitle, emptyMessag
                 )}
               </p>
               <p className="text-[11px] font-semibold text-slate-400">
-                {a.kind === 'lavage' ? 'Lavage' : 'Vidange'} du {shortDate(a.lastVisit)} ({a.ref})
+                {a.kind === 'lavage' ? 'Lavage' : 'Réparation'} du {shortDate(a.lastVisit)} ({a.ref})
                 {' • '}échéance {shortDate(a.dueDate)}
               </p>
             </div>
@@ -664,7 +664,7 @@ function AlertList({ view, alerts, perm, onSend, onRead, emptyTitle, emptyMessag
  *
  * Deux réglages, dans deux onglets :
  *
- *   • PAR DÉFAUT — le délai de toute la partie (lavage et vidange, séparément),
+ *   • PAR DÉFAUT — le délai de toute la partie (lavage et réparation, séparément),
  *     et l'interrupteur qui coupe les rappels sans perdre les délais.
  *   • PAR CLIENT — on cherche un client, on voit SES véhicules, et on règle le
  *     délai VOITURE PAR VOITURE. Un délai propre à un véhicule l'emporte sur le
@@ -835,7 +835,7 @@ function RappelConfigModal({ config, clients, canEdit, onClose, onSave, onSaveCl
                                 onChange={e => patchCarDays(v.id!, 'rappelLavageDays', e.target.value)} />
                             </div>
                             <div>
-                              <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Vidange (jours)</label>
+                              <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Réparation (jours)</label>
                               <Input type="number" min={0} inputMode="numeric" className="text-right"
                                 placeholder={`Défaut : ${config.reparationDays} j`}
                                 value={v.rappelReparationDays ?? ''}
@@ -873,8 +873,8 @@ function RappelConfigModal({ config, clients, canEdit, onClose, onSave, onSaveCl
                 <Input type="number" min={0} inputMode="numeric" className="text-right"
                   value={lavage} onChange={e => setLavage(e.target.value)} />
               </Field>
-              <Field label="Rappeler une VIDANGE après (jours)"
-                hint="0 = aucun rappel de vidange. Six mois (180) correspond à une révision.">
+              <Field label="Rappeler une RÉPARATION après (jours)"
+                hint="0 = aucun rappel de réparation. Six mois (180) correspond à une révision.">
                 <Input type="number" min={0} inputMode="numeric" className="text-right"
                   value={reparation} onChange={e => setReparation(e.target.value)} />
               </Field>
@@ -931,7 +931,7 @@ function TemplateModal({ initial, onClose, onSave }: {
             <Select value={usage} onChange={e => setUsage(e.target.value as any)}>
               <option value="libre">Message libre</option>
               <option value="lavage">Rappel de lavage</option>
-              <option value="reparation">Rappel de vidange</option>
+              <option value="reparation">Rappel de réparation</option>
             </Select>
           </Field>
         </div>

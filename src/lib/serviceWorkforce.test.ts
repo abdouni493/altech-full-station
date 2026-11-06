@@ -1,5 +1,5 @@
 /**
- * ─── Le travail des employés du Lavage & Vidange ───────────────────────────────
+ * ─── Le travail des employés du Lavage & Réparation ───────────────────────────────
  * Ce que ces cas protègent, parce que c'est là-dessus qu'un employé est PAYÉ et
  * que le rapport général le déplie désormais employé par employé :
  *
@@ -58,12 +58,12 @@ const reparations: BizReparation[] = [
     usedProducts: [{ productId: 'x', productName: 'Shampoing', qty: 1, unitPrice: 500, total: 500 }],
     serviceTotal: 1000, total: 1500, paid: 1500, rest: 0,
   }),
-  // 2 · À deux : Karim lave (800), Samir vidange (1 200). Facture 2 000.
+  // 2 · À deux : Karim lave (800), Samir réparation (1 200). Facture 2 000.
   rep({
     id: 'r2', date: '2026-09-05', kind: 'mixte', workers: ['w1', 'w2'],
     prestations: [
       { id: 'p2', kind: 'lavage', label: 'Lavage', amount: 800, workerIds: ['w1'] },
-      { id: 'p3', kind: 'reparation', label: 'Vidange 5W40', amount: 1200, workerIds: ['w2'] },
+      { id: 'p3', kind: 'reparation', label: 'Réparation 5W40', amount: 1200, workerIds: ['w2'] },
     ],
     serviceTotal: 2000, total: 2000, paid: 1000, rest: 1000,
   }),
@@ -87,7 +87,7 @@ const reparations: BizReparation[] = [
   // 6 · En attente : annoncée, pas encore payable.
   rep({
     id: 'r6', date: '2026-09-10', kind: 'reparation', workers: ['w2'], status: 'pending',
-    prestations: [{ id: 'p6', kind: 'reparation', label: 'Vidange', amount: 2000, workerIds: ['w2'] }],
+    prestations: [{ id: 'p6', kind: 'reparation', label: 'Réparation', amount: 2000, workerIds: ['w2'] }],
     serviceTotal: 2000, total: 2000, paid: 0, rest: 2000,
   }),
 ];
@@ -109,7 +109,7 @@ check('Karim — travaux de la période', K.worksCount, 3);
 check('Samir — travaux de la période', S.worksCount, 3);
 
 console.log('\nLa base retenue : ses prestations, jamais la facture entière');
-// 1 000 (r1, produit exclu) + 800 (r2, la vidange de Samir exclue) + 600 (r4, fiche sans affectation)
+// 1 000 (r1, produit exclu) + 800 (r2, la réparation de Samir exclue) + 600 (r4, fiche sans affectation)
 check('Karim — base', K.worksBase, 2400);
 // 1 200 (r2) + 1 000 (r3) + 2 000 (r6, en attente)
 check('Samir — base', S.worksBase, 4200);

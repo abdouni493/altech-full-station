@@ -1,5 +1,5 @@
 /**
- * ─── Le panneau « Travaux des employés » du rapport Lavage & Vidange ───────────
+ * ─── Le panneau « Travaux des employés » du rapport Lavage & Réparation ───────────
  *
  * Le rapport de l'atelier annonçait un chiffre d'affaires sans jamais dire qui
  * l'avait fait, alors que ces employés sont payés au POURCENTAGE de leurs
@@ -57,7 +57,7 @@ const reparations: any[] = [
     car: { marque: 'Renault', name: 'Clio 4', immatriculation: '12345-116-27' },
     prestations: [
       { id: 'p1', kind: 'lavage', label: 'Lavage complet', amount: 800, workerIds: ['w1'] },
-      { id: 'p2', kind: 'reparation', label: 'Vidange 5W40', amount: 1200, workerIds: ['w2'] },
+      { id: 'p2', kind: 'reparation', label: 'Réparation 5W40', amount: 1200, workerIds: ['w2'] },
     ],
     usedProducts: [{ productId: 'x1', productName: 'Huile Total 5W40', qty: 4, unitPrice: 900, total: 3600 }],
     serviceTotal: 2000, subtotal: 5600, discountAmount: 600, discountType: 'amount', discountValue: 600,
@@ -109,11 +109,11 @@ check('la base de Samir', html.includes('1 200'));
 check('sa part', html.includes('180'));
 
 section('Les petits détails que la fiche doit porter');
-check('la prestation de chacun est nommée', html.includes('Lavage complet') && html.includes('Vidange 5W40'));
-check('la répartition par nature', html.includes('Lavages') && html.includes('Vidanges'));
+check('la prestation de chacun est nommée', html.includes('Lavage complet') && html.includes('Réparation 5W40'));
+check('la répartition par nature', html.includes('Lavages') && html.includes('Réparations'));
 check('les états de règlement', html.includes('À payer'));
 // Valeur du stock sorti sur ses interventions : 3 600 pour l'un comme pour
-// l'autre, les deux ayant travaillé sur la même vidange.
+// l'autre, les deux ayant travaillé sur la même réparation.
 check('le stock sorti est chiffré', html.includes('3 600'));
 check('la remise accordée est chiffrée', html.includes('Remises accordées'));
 check('ce que ses clients doivent encore', html.includes('Reste dû par les clients') && html.includes('2 000'));

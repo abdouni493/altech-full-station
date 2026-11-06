@@ -144,7 +144,7 @@ export function missingTokens(body: string): string[] {
  * ─── POURQUOI L'APPLICATION ÉCRIT LE PREMIER JET ───────────────────────────────
  *
  * Devant un champ vide, on écrit vite et mal : pas de salutation, pas de nom de
- * station, pas de moyen de répondre. Un client qui reçoit « votre vidange est à
+ * station, pas de moyen de répondre. Un client qui reçoit « votre réparation est à
  * refaire » d'un numéro inconnu bloque le numéro — et un numéro bloqué par
  * plusieurs personnes finit banni.
  *

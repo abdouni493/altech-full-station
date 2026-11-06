@@ -9,6 +9,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import type { JustifEntryMode, JustifOperation } from '../lib/justifOps';
 import { ToastMessage, ToastType } from '../components/Toast';
 import {
   db, supabase, subscribeTable, uploadFile, uploadBase64, BUCKETS,
@@ -632,6 +633,11 @@ export interface BrigadeAccountingJustification {
   supplierName?: string;
   /** Produit consigné : `REMPLISSAGE` (bouteilles vides remplies) ou `VIDE`. */
   consigneMode?: ConsigneMode;
+  // ── TPE / TAG : saisie globale ou opérations indépendantes ──
+  entryMode?: JustifEntryMode;
+  operations?: JustifOperation[];
+  /** Type de tag (TAG en mode total). */
+  tagType?: string;
 }
 
 export interface TpeTransaction {
@@ -890,7 +896,7 @@ export const CASH_ACCOUNT_LABEL: Record<string, string> = {
   // Les deux magasins portent le nom choisi dans Paramètres → Magasins.
   get [CAISSE_PART_ID.lavage]() { return `Caisse ${MODULES.lavage.label}`; },
   get [CAISSE_PART_ID.magasin2]() { return `Caisse ${MODULES.magasin2.label}`; },
-  [CAISSE_PART_ID.carwash]: 'Caisse Lavage & Vidange',
+  [CAISSE_PART_ID.carwash]: 'Caisse Lavage & Réparation',
 };
 
 /**
@@ -1289,6 +1295,10 @@ export interface Purchase {
   /** Sous-total hors remise et hors TVA. */
   subtotal?: number;
   tvaAmount?: number;
+  /** Autres taxes appliquées (nom + % ou montant fixe), ajoutées au total. */
+  extraTaxes?: { id: string; presetId?: string; name: string; kind: 'percent' | 'amount'; value: number; amount: number }[];
+  /** Somme des autres taxes. */
+  extraTaxesAmount?: number;
 
   // ── Rendez-vous de paiement ────────────────────────────────────────────────
   /**
@@ -1343,6 +1353,45 @@ export interface ShopSale {
   notes?: string;
   printedAt?: string;
   invoiceImageUrl?: string;
+  /** Facture de l'écran Ventes Carburant — tout le détail (sources, taxes…). */
+  invoice?: CarburantInvoiceMeta;
+}
+
+/** Une ligne d'une facture de vente carburant. */
+export interface CarburantInvoiceLine {
+  id: string;
+  /** D'où sort la marchandise : une cuve, une armoire ou un magasin. */
+  source: 'CARBURANT' | 'ARMOIRE' | 'MAGASIN';
+  /** Cuve (`tankId`), armoire (`armoireId`) ou magasin (`moduleKey`). */
+  sourceId: string;
+  sourceName?: string;
+  productId?: string;
+  productName: string;
+  unit?: string;
+  quantity: number;
+  price: number;
+  total: number;
+  unitCost?: number;
+}
+
+export interface CarburantInvoiceMeta {
+  kind: 'CARBURANT';
+  number: string;
+  seq: number;
+  clientName?: string;
+  lines: CarburantInvoiceLine[];
+  discountType?: 'percent' | 'amount';
+  discountValue?: number;
+  discountAmount?: number;
+  tvaActive?: boolean;
+  tvaRate?: number;
+  taxes?: { id: string; presetId?: string; name: string; kind: 'percent' | 'amount'; value: number; amount: number }[];
+  taxesAmount?: number;
+  /** Compte bancaire crédité quand le règlement n'est pas en espèces. */
+  bankAccountId?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface InventoryPumpIndex {
@@ -1697,7 +1746,9 @@ type AppAction =
   | { type: 'DELETE_ARMOIRE'; payload: string }
   | { type: 'ADD_STOCK_TRANSFER'; payload: StockTransfer }
   | { type: 'UPDATE_STOCK_TRANSFER'; payload: { transfer: StockTransfer; previous: StockTransfer } }
-  | { type: 'DELETE_STOCK_TRANSFER'; payload: StockTransfer };
+  | { type: 'DELETE_STOCK_TRANSFER'; payload: StockTransfer }
+  /** Mouvement libre de stock d'armoire (vente directe…) : `quantity` est un DELTA. */
+  | { type: 'ADJUST_ARMOIRE_STOCK'; payload: { armoireId: string; moduleKey?: MagasinKey; productId: string; quantity: number }[] };
 
 // ─── Stock d'armoire : deltas purs (mises à jour optimistes) ──────────────────
 // `sign` vaut +1 pour appliquer un mouvement, −1 pour l'annuler.
@@ -1995,6 +2046,13 @@ function appReducer(state: AppState, action: AppAction): AppState {
 
     // ── Transferts Magasin → Armoire (le stock magasin est déplacé par l'écran,
     //    dans la partie Magasin concernée ; ici : l'armoire et l'historique) ──
+    case 'ADJUST_ARMOIRE_STOCK': {
+      let armoireStock = state.armoireStock || [];
+      for (const l of action.payload) {
+        armoireStock = applyArmoireDelta(armoireStock, l.armoireId, [{ productId: l.productId, quantity: l.quantity, moduleKey: l.moduleKey }], +1);
+      }
+      return { ...state, armoireStock };
+    }
     case 'ADD_STOCK_TRANSFER': {
       const tr = action.payload;
       return {
@@ -2400,6 +2458,9 @@ async function loadBrigadeAccountingsWithJustifications(): Promise<BrigadeAccoun
         moduleKey: jr.module_key ?? undefined, armoireId: jr.armoire_id ?? undefined,
         quantity: +jr.quantity || 0, unitPrice: +jr.unit_price || 0,
         supplierName: jr.supplier_name ?? undefined, consigneMode: jr.consigne_mode ?? undefined,
+        entryMode: jr.entry_mode ?? undefined,
+        operations: Array.isArray(jr.operations) ? jr.operations : undefined,
+        tagType: jr.tag_type ?? undefined,
       });
     });
   }
@@ -2573,7 +2634,7 @@ function mapFuelSale(r: any): FuelSale {
   return { id: r.id, date: r.date, pumpId: r.pump_id, liters: +r.liters, pricePerLiter: +r.price_per_liter, total: +r.total, paymentMode: r.payment_mode, clientId: r.client_id, bonNumber: r.bon_number, bonPhoto: r.bon_photo_url, bonPhotoUrl: r.bon_photo_url, pompisteId: r.pompiste_id, brigadeId: r.brigade_id };
 }
 function mapShopSale(r: any): ShopSale {
-  return { id: r.id, date: r.date, clientId: r.client_id, sellerId: r.seller_id, items: [], subtotal: +r.subtotal, tvaAmount: +r.tva_amount, total: +r.total, paymentMode: r.payment_mode, chequeNumber: r.cheque_number, bonNumber: r.bon_number, bonPhoto: r.bon_photo_url, bonPhotoUrl: r.bon_photo_url, amountPaid: +r.amount_paid, rest: +r.rest, status: r.status, notes: r.notes, printedAt: r.printed_at, invoiceImageUrl: r.invoice_image_url };
+  return { id: r.id, date: r.date, clientId: r.client_id, sellerId: r.seller_id, items: [], subtotal: +r.subtotal, tvaAmount: +r.tva_amount, total: +r.total, paymentMode: r.payment_mode, chequeNumber: r.cheque_number, bonNumber: r.bon_number, bonPhoto: r.bon_photo_url, bonPhotoUrl: r.bon_photo_url, amountPaid: +r.amount_paid, rest: +r.rest, status: r.status, notes: r.notes, printedAt: r.printed_at, invoiceImageUrl: r.invoice_image_url, invoice: r.invoice_meta ?? undefined };
 }
 function mapDeliveryNote(r: any): DeliveryNote {
   return { id: r.id, date: r.date, supplierId: r.supplier_id, tankId: r.tank_id, liters: +r.liters, pricePerLiter: +r.price_per_liter, status: r.status, total: +r.total, expiryDate: r.expiry_date, blNumber: r.bl_number, blDate: r.bl_date, creationDate: r.creation_date, immatriculation: r.immatriculation, driverId: r.driver_id, items: [], photos: [], payments: [] };
@@ -2607,6 +2668,8 @@ function mapPurchase(r: any): Purchase {
     blNumber: r.bl_number ?? undefined, discountType: r.discount_type ?? undefined, discountValue: r.discount_value != null ? +r.discount_value : undefined,
     discountAmount: r.discount_amount != null ? +r.discount_amount : undefined, subtotal: r.subtotal != null ? +r.subtotal : undefined,
     tvaAmount: r.tva_amount != null ? +r.tva_amount : undefined,
+    extraTaxes: Array.isArray(r.extra_taxes) ? r.extra_taxes : undefined,
+    extraTaxesAmount: r.extra_taxes_amount != null ? +r.extra_taxes_amount : undefined,
     appointmentActive: r.appointment_active ?? undefined, appointmentDate: r.appointment_date ?? undefined,
     appointmentAmount: r.appointment_amount != null ? +r.appointment_amount : undefined,
     appointmentNotes: r.appointment_notes ?? undefined, appointmentPaid: r.appointment_paid ?? undefined,
@@ -2795,6 +2858,9 @@ function brigadeArmoireColumns(b: Brigade) {
 
 /** Colonnes du justificatif ACHAT_PRODUIT (vides pour les autres types). */
 function justifProductColumns(j: BrigadeAccountingJustification) {
+  const ops = (j.justificationType === 'TPE' || j.justificationType === 'TAG')
+    ? { entry_mode: j.entryMode || 'TOTAL', operations: j.operations || [], tag_type: nz(j.tagType) } : {};
+  if (j.justificationType !== 'ACHAT_PRODUIT') return ops;
   if (j.justificationType !== 'ACHAT_PRODUIT') return {};
   return {
     product_id: nz(j.productId), product_name: nz(j.productName), module_key: nz(j.moduleKey),
@@ -3014,6 +3080,12 @@ async function syncToSupabase(action: AppAction): Promise<void> {
       // ── Transferts Magasin → Armoire ───────────────────────────────────────
       // Le stock du MAGASIN (biz_products) est déplacé par l'écran lui-même ;
       // ici : l'en-tête, ses lignes et le stock de l'armoire (RPC atomique).
+      case 'ADJUST_ARMOIRE_STOCK': {
+        for (const l of action.payload) {
+          await db.adjustArmoireStock(l.armoireId, l.productId, l.quantity, 0, l.moduleKey);
+        }
+        break;
+      }
       case 'ADD_STOCK_TRANSFER': {
         const tr = action.payload;
         await db.addStockTransfer(stockTransferRow(tr));
@@ -3247,12 +3319,19 @@ async function syncToSupabase(action: AppAction): Promise<void> {
       case 'DELETE_FUEL_SALE': await db.deleteFuelSale(action.payload); break;
       case 'ADD_SHOP_SALE': {
         const s = action.payload;
-        await db.addShopSale({ id: s.id, date: s.date, client_id: nz(s.clientId), seller_id: nz(s.sellerId), subtotal: s.subtotal, tva_amount: s.tvaAmount ?? 0, total: s.total, payment_mode: s.paymentMode, cheque_number: s.chequeNumber, bon_number: s.bonNumber, bon_photo_url: (s as any).bonPhotoUrl, amount_paid: s.amountPaid ?? 0, rest: s.rest ?? 0, status: s.status, notes: s.notes, invoice_image_url: s.invoiceImageUrl ?? null });
+        await db.addShopSale({ id: s.id, date: s.date, client_id: nz(s.clientId), seller_id: nz(s.sellerId), subtotal: s.subtotal, tva_amount: s.tvaAmount ?? 0, total: s.total, payment_mode: s.paymentMode, cheque_number: s.chequeNumber, bon_number: s.bonNumber, bon_photo_url: (s as any).bonPhotoUrl, amount_paid: s.amountPaid ?? 0, rest: s.rest ?? 0, status: s.status, notes: s.notes, invoice_image_url: s.invoiceImageUrl ?? null, invoice_meta: s.invoice ?? null });
         if (s.items?.length) await db.addShopSaleItems(s.items.map(i => ({ sale_id: s.id, product_id: i.productId, product_name: i.productName, quantity: i.quantity, price: i.price, tva: i.tva ?? 0 })));
         break;
       }
       case 'UPDATE_SHOP_SALE':
-        await db.updateShopSale(action.payload.id, { subtotal: action.payload.subtotal, tva_amount: action.payload.tvaAmount, total: action.payload.total, payment_mode: action.payload.paymentMode, amount_paid: action.payload.amountPaid, rest: action.payload.rest, status: action.payload.status, notes: action.payload.notes, printed_at: action.payload.printedAt });
+        {
+          const u = action.payload;
+          await db.updateShopSale(u.id, { date: u.date, client_id: nz(u.clientId), bon_number: u.bonNumber ?? null, cheque_number: u.chequeNumber ?? null, subtotal: u.subtotal, tva_amount: u.tvaAmount, total: u.total, payment_mode: u.paymentMode, amount_paid: u.amountPaid, rest: u.rest, status: u.status, notes: u.notes, printed_at: u.printedAt, ...(u.invoice ? { invoice_meta: u.invoice } : {}) });
+          if (u.invoice) {
+            await supabase.from('shop_sale_items').delete().eq('sale_id', u.id);
+            if (u.items?.length) await db.addShopSaleItems(u.items.map(i => ({ sale_id: u.id, product_id: i.productId, product_name: i.productName, quantity: i.quantity, price: i.price, tva: i.tva ?? 0 })));
+          }
+        }
         break;
       case 'DELETE_SHOP_SALE': await db.deleteShopSale(action.payload); break;
       case 'ADD_DELIVERY_NOTE': {
@@ -3359,7 +3438,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
         break;
       case 'ADD_PURCHASE': {
         const p = action.payload;
-        await db.addPurchase({ id: p.id, date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, due_date: nz(p.dueDate), driver_id: nz(p.driverId), total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, linked_delivery_note_id: nz(p.linkedDeliveryNoteId), notes: p.notes, type: p.type, tva_rate: p.tvaRate ?? 0, tva_active: p.tvaActive ?? false, tank_id: nz(p.tankId), receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
+        await db.addPurchase({ id: p.id, date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, due_date: nz(p.dueDate), driver_id: nz(p.driverId), total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, linked_delivery_note_id: nz(p.linkedDeliveryNoteId), notes: p.notes, type: p.type, tva_rate: p.tvaRate ?? 0, tva_active: p.tvaActive ?? false, tank_id: nz(p.tankId), receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, extra_taxes: p.extraTaxes ?? [], extra_taxes_amount: p.extraTaxesAmount ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
         if (p.items?.length) await db.addPurchaseItems(p.items.map(i => ({ purchase_id: p.id, product_id: nz(i.productId), product_name: i.productName, quantity: i.quantity, buy_price: i.buyPrice, selling_price: i.sellingPrice, min_stock: i.minStock, unit: i.unit, total: i.total, tank_id: nz(i.tankId), tva_active: i.tvaActive ?? false, tva_rate: i.tvaRate ?? 0 })));
         if (p.payments?.length) for (const pay of p.payments) await db.addPurchasePayment({ id: pay.id, purchase_id: p.id, date: pay.date, amount: pay.amount, mode: pay.mode, cheque_number: pay.chequeNumber, bordereau_number: nz(pay.bordereauNumber), account_id: nz(pay.accountId), notes: pay.notes });
         break;
@@ -3367,7 +3446,7 @@ async function syncToSupabase(action: AppAction): Promise<void> {
       case 'UPDATE_PURCHASE':
         {
           const p = action.payload;
-          await db.updatePurchase(p.id, { date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, notes: p.notes, receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, tva_active: p.tvaActive ?? false, tva_rate: p.tvaRate ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
+          await db.updatePurchase(p.id, { date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, notes: p.notes, receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, extra_taxes: p.extraTaxes ?? [], extra_taxes_amount: p.extraTaxesAmount ?? 0, tva_active: p.tvaActive ?? false, tva_rate: p.tvaRate ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
           // Lines and payment methods are rewritten wholesale: without this an
           // edit kept the ORIGINAL rows in Supabase, so any payment method or
           // cuve line added while editing disappeared on the next reload.
@@ -4758,14 +4837,21 @@ export function useSupabaseDispatch() {
         // ── Shop Sales ─────────────────────────────────────────────────────
         case 'ADD_SHOP_SALE': {
           const s = action.payload;
-          await db.addShopSale({ id: s.id, date: s.date, client_id: nz(s.clientId), seller_id: nz(s.sellerId), subtotal: s.subtotal, tva_amount: s.tvaAmount ?? 0, total: s.total, payment_mode: s.paymentMode, cheque_number: s.chequeNumber, bon_number: s.bonNumber, bon_photo_url: s.bonPhotoUrl, amount_paid: s.amountPaid ?? 0, rest: s.rest ?? 0, status: s.status, notes: s.notes });
+          await db.addShopSale({ id: s.id, date: s.date, client_id: nz(s.clientId), seller_id: nz(s.sellerId), subtotal: s.subtotal, tva_amount: s.tvaAmount ?? 0, total: s.total, payment_mode: s.paymentMode, cheque_number: s.chequeNumber, bon_number: s.bonNumber, bon_photo_url: s.bonPhotoUrl, amount_paid: s.amountPaid ?? 0, rest: s.rest ?? 0, status: s.status, notes: s.notes, invoice_meta: s.invoice ?? null });
           if (s.items?.length) {
             await db.addShopSaleItems(s.items.map(i => ({ sale_id: s.id, product_id: i.productId, product_name: i.productName, quantity: i.quantity, price: i.price, tva: i.tva ?? 0 })));
           }
           break;
         }
         case 'UPDATE_SHOP_SALE':
-          await db.updateShopSale(action.payload.id, { subtotal: action.payload.subtotal, tva_amount: action.payload.tvaAmount, total: action.payload.total, payment_mode: action.payload.paymentMode, amount_paid: action.payload.amountPaid, rest: action.payload.rest, status: action.payload.status, notes: action.payload.notes, printed_at: action.payload.printedAt });
+          {
+          const u = action.payload;
+          await db.updateShopSale(u.id, { date: u.date, client_id: nz(u.clientId), bon_number: u.bonNumber ?? null, cheque_number: u.chequeNumber ?? null, subtotal: u.subtotal, tva_amount: u.tvaAmount, total: u.total, payment_mode: u.paymentMode, amount_paid: u.amountPaid, rest: u.rest, status: u.status, notes: u.notes, printed_at: u.printedAt, ...(u.invoice ? { invoice_meta: u.invoice } : {}) });
+          if (u.invoice) {
+            await supabase.from('shop_sale_items').delete().eq('sale_id', u.id);
+            if (u.items?.length) await db.addShopSaleItems(u.items.map(i => ({ sale_id: u.id, product_id: i.productId, product_name: i.productName, quantity: i.quantity, price: i.price, tva: i.tva ?? 0 })));
+          }
+        }
           break;
         case 'DELETE_SHOP_SALE':
           await db.deleteShopSale(action.payload);
@@ -4797,7 +4883,7 @@ export function useSupabaseDispatch() {
         // ── Purchases ──────────────────────────────────────────────────────
         case 'ADD_PURCHASE': {
           const p = action.payload;
-          await db.addPurchase({ id: p.id, date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, due_date: nz(p.dueDate), driver_id: nz(p.driverId), total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, linked_delivery_note_id: nz(p.linkedDeliveryNoteId), notes: p.notes, type: p.type, tva_rate: p.tvaRate ?? 0, tva_active: p.tvaActive ?? false, tank_id: nz(p.tankId), receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
+          await db.addPurchase({ id: p.id, date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, due_date: nz(p.dueDate), driver_id: nz(p.driverId), total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, linked_delivery_note_id: nz(p.linkedDeliveryNoteId), notes: p.notes, type: p.type, tva_rate: p.tvaRate ?? 0, tva_active: p.tvaActive ?? false, tank_id: nz(p.tankId), receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, extra_taxes: p.extraTaxes ?? [], extra_taxes_amount: p.extraTaxesAmount ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
           if (p.items?.length) {
             await db.addPurchaseItems(p.items.map(i => ({ purchase_id: p.id, product_id: nz(i.productId), product_name: i.productName, quantity: i.quantity, buy_price: i.buyPrice, selling_price: i.sellingPrice, min_stock: i.minStock, unit: i.unit, total: i.total, tank_id: nz(i.tankId), tva_active: i.tvaActive ?? false, tva_rate: i.tvaRate ?? 0 })));
           }
@@ -4811,7 +4897,7 @@ export function useSupabaseDispatch() {
         case 'UPDATE_PURCHASE':
           {
             const p = action.payload;
-            await db.updatePurchase(p.id, { date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, notes: p.notes, receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, tva_active: p.tvaActive ?? false, tva_rate: p.tvaRate ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
+            await db.updatePurchase(p.id, { date: p.date, supplier_id: nz(p.supplierId), invoice_number: p.invoiceNumber, total: p.total, amount_paid: p.amountPaid, rest: p.rest, status: p.status, payment_mode: p.paymentMode, cheque_number: p.chequeNumber, notes: p.notes, receipt_photo_url: p.receiptPhoto, bl_number: nz(p.blNumber), discount_type: nz(p.discountType), discount_value: p.discountValue ?? 0, discount_amount: p.discountAmount ?? 0, subtotal: p.subtotal ?? 0, tva_amount: p.tvaAmount ?? 0, extra_taxes: p.extraTaxes ?? [], extra_taxes_amount: p.extraTaxesAmount ?? 0, tva_active: p.tvaActive ?? false, tva_rate: p.tvaRate ?? 0, appointment_active: p.appointmentActive ?? false, appointment_date: nz(p.appointmentDate), appointment_amount: p.appointmentAmount ?? null, appointment_notes: nz(p.appointmentNotes), appointment_paid: p.appointmentPaid ?? false, appointment_paid_at: nz(p.appointmentPaidAt) });
             // Lines and payment methods are rewritten wholesale: without this an
             // edit kept the ORIGINAL rows in Supabase, so any payment method or
             // cuve line added while editing disappeared on the next reload.

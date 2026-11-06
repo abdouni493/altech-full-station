@@ -464,6 +464,8 @@ export interface CarburantCash {
   expensesCash: number;
   /** Recharges d'avance déposées en espèces par les clients. */
   rechargeCash: number;
+  /** Factures Ventes Carburant réglées en espèces. */
+  salesCash: number;
   /** Salaires du personnel carburant réglés en espèces. */
   salariesCash: number;
   /** Acomptes remis en main propre au personnel carburant. */
@@ -553,6 +555,26 @@ export function computeCarburantCash(app: any): CarburantCash {
         mode: t.mode || 'ESPECES',
       });
     }
+  }
+
+  // 2 bis. Factures de l'écran Ventes Carburant réglées en espèces : la part
+  //        payée sur place entre dans la caisse Carburant (le reste est une
+  //        dette du client, réglée plus tard comme toute autre).
+  for (const sale of (app?.shopSales || [])) {
+    if (sale?.invoice?.kind !== 'CARBURANT') continue;
+    const mode = String(sale.paymentMode || 'ESPECES').toUpperCase();
+    if (mode !== 'ESPECES' && mode !== 'CASH') continue;
+    const amount = num(sale.amountPaid);
+    if (!amount) continue;
+    lines.push({
+      id: `vte-${sale.id}`,
+      date: sale.date,
+      nature: 'Vente',
+      label: `Facture ${sale.invoice.number}${sale.invoice.clientName ? ` — ${sale.invoice.clientName}` : ''}`,
+      amount,
+      reference: sale.invoice.number,
+      mode: 'ESPECES',
+    });
   }
 
   // 3. Achats carburant réglés en espèces — règlement par règlement.
@@ -670,6 +692,7 @@ export function computeCarburantCash(app: any): CarburantCash {
     brigadeCash: totalOf('Brigade'),
     clientCash: totalOf('Règlement client'),
     rechargeCash: totalOf('Recharge client'),
+    salesCash: totalOf('Vente'),
     purchasesCash: -totalOf('Achat'),
     expensesCash: -totalOf('Dépense'),
     salariesCash: -totalOf('Salaire'),

@@ -9,7 +9,7 @@
  *     par véhicule et par nature », chaque visite en produirait un, et le client
  *     recevrait cinquante messages d'un coup — le chemin le plus court vers un
  *     numéro banni ;
- *   • le lavage et la vidange ont des délais INDÉPENDANTS. Une intervention
+ *   • le lavage et la réparation ont des délais INDÉPENDANTS. Une intervention
  *     mixte doit donc produire deux échéances distinctes ;
  *   • un délai à zéro coupe SA nature, sans toucher à l'autre ;
  *   • une alerte classée (lue) ou envoyée ne revient plus ;
@@ -121,7 +121,7 @@ section('3. Deux véhicules du même client sont suivis séparément');
   check('et elle est bien échue', alerts[0]?.due, true);
 }
 
-// ─── 4. Lavage et vidange, délais indépendants ─────────────────────────────
+// ─── 4. Lavage et réparation, délais indépendants ─────────────────────────────
 section('4. Une intervention mixte produit deux échéances distinctes');
 {
   const alerts = buildRappels({
@@ -129,7 +129,7 @@ section('4. Une intervention mixte produit deux échéances distinctes');
       id: 'r1', kind: 'mixte', ref: 'INT-0001', date: '2026-08-01T10:00:00',
       prestations: [
         { id: 'p1', kind: 'lavage', label: 'Lavage', amount: 800, workerIds: [] },
-        { id: 'p2', kind: 'reparation', label: 'Vidange', amount: 4500, workerIds: [] },
+        { id: 'p2', kind: 'reparation', label: 'Réparation', amount: 4500, workerIds: [] },
       ],
     })],
     clients: [client], handled: [], config: CFG, today: TODAY, lookaheadDays: 3650,
@@ -138,25 +138,25 @@ section('4. Une intervention mixte produit deux échéances distinctes');
   const lav = alerts.find(a => a.kind === 'lavage');
   const rpr = alerts.find(a => a.kind === 'reparation');
   check('le lavage revient à 30 jours', lav?.dueDate, '2026-08-31');
-  check('la vidange à 180 jours', rpr?.dueDate, '2027-01-28');
+  check('la réparation à 180 jours', rpr?.dueDate, '2027-01-28');
 }
 
 // ─── 5. Un délai à zéro coupe SA nature seulement ─────────────────────────────
-section('5. lavageDays = 0 ⇒ plus de rappel de lavage, la vidange reste');
+section('5. lavageDays = 0 ⇒ plus de rappel de lavage, la réparation reste');
 {
   const alerts = buildRappels({
     reparations: [rep({
       id: 'r1', kind: 'mixte', date: '2026-01-01T10:00:00',
       prestations: [
         { id: 'p1', kind: 'lavage', label: 'Lavage', amount: 800, workerIds: [] },
-        { id: 'p2', kind: 'reparation', label: 'Vidange', amount: 4500, workerIds: [] },
+        { id: 'p2', kind: 'reparation', label: 'Réparation', amount: 4500, workerIds: [] },
       ],
     })],
     clients: [client], handled: [],
     config: { lavageDays: 0, reparationDays: 180, enabled: true }, today: TODAY,
   });
   check('une seule alerte', alerts.length, 1);
-  check('et c\'est la vidange', alerts[0]?.kind, 'reparation');
+  check('et c\'est la réparation', alerts[0]?.kind, 'reparation');
 }
 
 section('5 bis. Rappels désactivés ⇒ aucune alerte, les délais sont conservés');
@@ -283,7 +283,7 @@ section('12 bis. Un délai de 0 sur un véhicule le fait taire, lui seul');
   check('et c\'est la Hilux', alerts[0]?.reparationId, 'r2');
 }
 
-section('12 ter. Le lavage et la vidange d\'un véhicule se règlent séparément');
+section('12 ter. Le lavage et la réparation d\'un véhicule se règlent séparément');
 {
   const clientMixte: BizContact = {
     id: 'cl1', name: 'Belaid Karim', phone: '0550 12 34 56', createdAt: '2025-01-01',
@@ -294,7 +294,7 @@ section('12 ter. Le lavage et la vidange d\'un véhicule se règlent séparémen
       id: 'r1', kind: 'mixte', car: { id: 'v1' }, date: '2026-08-01T10:00:00',
       prestations: [
         { id: 'p1', kind: 'lavage', label: 'Lavage', amount: 800, workerIds: [] },
-        { id: 'p2', kind: 'reparation', label: 'Vidange', amount: 4500, workerIds: [] },
+        { id: 'p2', kind: 'reparation', label: 'Réparation', amount: 4500, workerIds: [] },
       ],
     })],
     clients: [clientMixte], handled: [], config: CFG, today: TODAY, lookaheadDays: 3650,
@@ -302,7 +302,7 @@ section('12 ter. Le lavage et la vidange d\'un véhicule se règlent séparémen
   const lav = alerts.find(a => a.kind === 'lavage');
   const rpr = alerts.find(a => a.kind === 'reparation');
   check('le lavage propre au véhicule : 15 jours', lav?.dueDate, '2026-08-16');
-  check('la vidange propre au véhicule : 90 jours', rpr?.dueDate, '2026-10-30');
+  check('la réparation propre au véhicule : 90 jours', rpr?.dueDate, '2026-10-30');
 }
 
 // ─── Bilan ────────────────────────────────────────────────────────────────────

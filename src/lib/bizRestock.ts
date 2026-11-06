@@ -2,7 +2,7 @@
  * ─── Retour de marchandise en stock (Cafétéria / Lavage) ───────────────────────
  *
  * TOUT ce qui sort du stock doit pouvoir y revenir, et par le même chemin.
- * Une vente, une intervention de lavage / vidange ou un bon d'achat qu'on
+ * Une vente, une intervention de lavage / réparation ou un bon d'achat qu'on
  * SUPPRIME est une opération qui n'a jamais eu lieu : la marchandise qu'elle
  * avait fait sortir (ou entrer) doit retrouver sa place, sinon le catalogue
  * annonce un stock que la partie n'a pas — ou cache celui qu'elle a.
